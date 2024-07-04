@@ -460,7 +460,7 @@ class FilterBuilder extends Builder
         return $this;
     }
 
-    public function aggregations($aggregations)
+    public function aggregate($aggregations)
     {
         $this->aggregations = array_merge($aggregations, $this->aggregations);
 
@@ -502,6 +502,8 @@ class FilterBuilder extends Builder
             ->engine()
             ->buildSearchQueryPayloadCollection($this);
     }
+
+
 
     /**
      * Eager load some some relations.
