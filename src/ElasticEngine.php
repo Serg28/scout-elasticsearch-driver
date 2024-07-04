@@ -88,6 +88,17 @@ class ElasticEngine extends Engine
         $this->indexer->delete($models);
     }
 
+    public function deleteIndex($models)
+    {
+        $this->indexer->delete($models);
+    }
+
+    public function createIndex($name, array $options = []) {
+
+    }
+    public function lazyMap(Builder $builder, $results, $model) {
+
+    }
     /**
      * Build the payload collection.
      *
@@ -136,6 +147,7 @@ class ElasticEngine extends Engine
                 ->setIfNotEmpty('body._source', $builder->select)
                 ->setIfNotEmpty('body.collapse.field', $builder->collapse)
                 ->setIfNotEmpty('body.sort', $builder->orders)
+                ->setIfNotEmpty('body.aggregations', $builder->aggregations)
                 ->setIfNotEmpty('body.explain', $options['explain'] ?? null)
                 ->setIfNotEmpty('body.profile', $options['profile'] ?? null)
                 ->setIfNotEmpty('body.min_score', $builder->minScore)
@@ -235,6 +247,13 @@ class ElasticEngine extends Engine
     {
         return $this->performSearch($builder, [
             'profile' => true,
+        ]);
+    }
+
+    public function aggregations(Builder $builder, $aggregations)
+    {
+        return $this->performSearch($builder, [
+            $builder->aggregations = $aggregations
         ]);
     }
 
