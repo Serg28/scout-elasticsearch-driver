@@ -53,6 +53,7 @@ class FilterBuilder extends Builder
      */
     public $minScore;
 
+    public $aggregations = [];
     /**
      * FilterBuilder constructor.
      *
@@ -455,6 +456,13 @@ class FilterBuilder extends Builder
     public function orderRaw(array $payload)
     {
         $this->orders[] = $payload;
+
+        return $this;
+    }
+
+    public function aggregations($aggregations)
+    {
+        $this->aggregations = array_merge($aggregations, $this->aggregations);
 
         return $this;
     }
