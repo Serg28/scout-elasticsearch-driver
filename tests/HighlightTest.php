@@ -1,8 +1,8 @@
 <?php
 
-namespace ScoutElastic\Tests;
+namespace Novius\ScoutElastic\Test;
 
-use ScoutElastic\Highlight;
+use Novius\ScoutElastic\Highlight;
 
 class HighlightTest extends AbstractTestCase
 {
@@ -13,12 +13,12 @@ class HighlightTest extends AbstractTestCase
             'description' => ['Description snippet 1', 'Description snippet 2'],
         ]);
 
-        $this->assertSame(
+        $this->assertEquals(
             ['Title snippet 1'],
             $highlight->title
         );
 
-        $this->assertSame(
+        $this->assertEquals(
             'Description snippet 1 Description snippet 2',
             $highlight->descriptionAsString
         );

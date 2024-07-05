@@ -1,6 +1,6 @@
 <?php
 
-namespace ScoutElastic\Console;
+namespace Novius\ScoutElastic\Console;
 
 use Illuminate\Console\GeneratorCommand;
 

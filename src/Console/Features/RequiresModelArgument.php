@@ -1,10 +1,10 @@
 <?php
 
-namespace ScoutElastic\Console\Features;
+namespace Novius\ScoutElastic\Console\Features;
 
-use Illuminate\Database\Eloquent\Model;
+use Novius\ScoutElastic\Searchable;
 use InvalidArgumentException;
-use ScoutElastic\Searchable;
+use Illuminate\Database\Eloquent\Model;
 use Symfony\Component\Console\Input\InputArgument;
 
 trait RequiresModelArgument
@@ -18,7 +18,7 @@ trait RequiresModelArgument
     {
         $modelClass = trim($this->argument('model'));
 
-        $modelInstance = new $modelClass;
+        $modelInstance = new $modelClass();
 
         if (
             ! ($modelInstance instanceof Model) ||

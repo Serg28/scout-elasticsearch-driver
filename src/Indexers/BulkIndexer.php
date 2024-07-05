@@ -1,15 +1,17 @@
 <?php
 
-namespace ScoutElastic\Indexers;
+namespace Novius\ScoutElastic\Indexers;
 
+use Illuminate\Contracts\Container\BindingResolutionException;
+use Novius\ScoutElastic\Console\Features\HasConfigurator;
+use Novius\ScoutElastic\Payloads\RawPayload;
+use Novius\ScoutElastic\Payloads\TypePayload;
+use Novius\ScoutElastic\Facades\ElasticClient;
 use Illuminate\Database\Eloquent\Collection;
-use ScoutElastic\Facades\ElasticClient;
-use ScoutElastic\Migratable;
-use ScoutElastic\Payloads\RawPayload;
-use ScoutElastic\Payloads\TypePayload;
 
 class BulkIndexer implements IndexerInterface
 {
+    use HasConfigurator;
     /**
      * {@inheritdoc}
      */
@@ -17,12 +19,20 @@ class BulkIndexer implements IndexerInterface
     {
         $model = $models->first();
         $indexConfigurator = $model->getIndexConfigurator();
+        $this->configurator = $indexConfigurator;
 
-        $bulkPayload = new TypePayload($model);
-
-        if (in_array(Migratable::class, class_uses_recursive($indexConfigurator))) {
-            $bulkPayload->useAlias('write');
+        try {
+            // Use name of new index created by elastic:create-index command
+            $indexName = resolve('elasticIndexCreated');
+        } catch (BindingResolutionException $e) {
+            $indexName = $indexConfigurator->getName();
         }
+
+        if (! $this->aliasAlreadyExists()) {
+            throw new \Exception(sprintf('ES indice with aliase %s does not exists. Please run elastic:create-index command before.', $indexConfigurator->getName()));
+        }
+
+        $bulkPayload = (new TypePayload($model))->useIndex($indexName);
 
         if ($documentRefresh = config('scout_elastic.document_refresh')) {
             $bulkPayload->set('refresh', $documentRefresh);
@@ -35,14 +45,17 @@ class BulkIndexer implements IndexerInterface
 
             $modelData = array_merge(
                 $model->toSearchableArray(),
-                $model->scoutMetadata()
+                $model->scoutMetadata(),
+                [
+                    'type' => $model->searchableAs(),
+                ]
             );
 
             if (empty($modelData)) {
                 return true;
             }
 
-            $actionPayload = (new RawPayload)
+            $actionPayload = (new RawPayload())
                 ->set('index._id', $model->getScoutKey());
 
             $bulkPayload
@@ -59,19 +72,21 @@ class BulkIndexer implements IndexerInterface
     public function delete(Collection $models)
     {
         $model = $models->first();
+        $indexConfigurator = $model->getIndexConfigurator();
+        $this->configurator = $indexConfigurator;
+
+        if (! $this->aliasAlreadyExists()) {
+            return;
+        }
 
         $bulkPayload = new TypePayload($model);
 
         $models->each(function ($model) use ($bulkPayload) {
-            $actionPayload = (new RawPayload)
+            $actionPayload = (new RawPayload())
                 ->set('delete._id', $model->getScoutKey());
 
             $bulkPayload->add('body', $actionPayload->get());
         });
-
-        if ($documentRefresh = config('scout_elastic.document_refresh')) {
-            $bulkPayload->set('refresh', $documentRefresh);
-        }
 
         $bulkPayload->set('client.ignore', 404);
 

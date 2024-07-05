@@ -2,7 +2,7 @@
 
 namespace DummyNamespace;
 
-use ScoutElastic\Searchable;
+use Novius\ScoutElastic\Searchable;
 use Illuminate\Database\Eloquent\Model;
 
 class DummyClass extends Model
@@ -19,12 +19,5 @@ class DummyClass extends Model
      */
     protected $searchRules = [
         DummySearchRule
-    ];
-
-    /**
-     * @var array
-     */
-    protected $mapping = [
-        //
     ];
 }

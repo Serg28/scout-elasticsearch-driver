@@ -1,9 +1,9 @@
 <?php
 
-namespace ScoutElastic\Console;
+namespace Novius\ScoutElastic\Console;
 
-use Illuminate\Foundation\Console\ModelMakeCommand;
 use Symfony\Component\Console\Input\InputOption;
+use Illuminate\Foundation\Console\ModelMakeCommand;
 
 class SearchableModelMakeCommand extends ModelMakeCommand
 {
@@ -72,7 +72,7 @@ class SearchableModelMakeCommand extends ModelMakeCommand
     /**
      * Build the class.
      *
-     * @param  string  $name
+     * @param string $name
      * @return string
      */
     protected function buildClass($name)

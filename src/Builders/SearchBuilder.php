@@ -1,6 +1,6 @@
 <?php
 
-namespace ScoutElastic\Builders;
+namespace Novius\ScoutElastic\Builders;
 
 use Illuminate\Database\Eloquent\Model;
 
@@ -16,10 +16,10 @@ class SearchBuilder extends FilterBuilder
     /**
      * SearchBuilder constructor.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  string  $query
-     * @param  callable|null  $callback
-     * @param  bool  $softDelete
+     * @param \Illuminate\Database\Eloquent\Model $model
+     * @param string $query
+     * @param callable|null $callback
+     * @param bool $softDelete
      * @return void
      */
     public function __construct(Model $model, $query, $callback = null, $softDelete = false)
@@ -32,7 +32,7 @@ class SearchBuilder extends FilterBuilder
     /**
      * Add a rule.
      *
-     * @param  string|callable  $rule Search rule class name or function
+     * @param string|callable $rule Search rule class name or function
      * @return $this
      */
     public function rule($rule)

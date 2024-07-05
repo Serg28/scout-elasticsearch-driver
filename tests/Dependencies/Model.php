@@ -1,16 +1,16 @@
 <?php
 
-namespace ScoutElastic\Tests\Dependencies;
+namespace Novius\ScoutElastic\Test\Dependencies;
 
-use ScoutElastic\Searchable;
-use ScoutElastic\Tests\Stubs\Model as StubModel;
+use Novius\ScoutElastic\Searchable;
+use Novius\ScoutElastic\Test\Stubs\Model as StubModel;
 
 trait Model
 {
     use IndexConfigurator;
 
     /**
-     * @param  array  $params Available parameters: key, searchable_as, searchable_array, index_configurator, methods.
+     * @param array $params Available parameters: key, searchable_as, searchable_array, index_configurator, methods.
      * @return Searchable
      */
     public function mockModel(array $params = [])

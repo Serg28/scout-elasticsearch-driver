@@ -1,15 +1,14 @@
 <?php
 
-namespace ScoutElastic\Tests;
+namespace Novius\ScoutElastic\Test;
 
-use Illuminate\Database\Eloquent\Collection;
-use ScoutElastic\Builders\FilterBuilder;
-use ScoutElastic\Builders\SearchBuilder;
-use ScoutElastic\ElasticEngine;
-use ScoutElastic\Facades\ElasticClient;
-use ScoutElastic\Tests\Dependencies\Model;
-use ScoutElastic\Tests\Stubs\SearchRule;
 use stdClass;
+use Novius\ScoutElastic\ElasticEngine;
+use Novius\ScoutElastic\Facades\ElasticClient;
+use Novius\ScoutElastic\Builders\FilterBuilder;
+use Novius\ScoutElastic\Builders\SearchBuilder;
+use Novius\ScoutElastic\Test\Stubs\SearchRule;
+use Novius\ScoutElastic\Test\Dependencies\Model;
 
 class ElasticEngineTest extends AbstractTestCase
 {
@@ -22,6 +21,8 @@ class ElasticEngineTest extends AbstractTestCase
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->engine = $this
             ->getMockBuilder(ElasticEngine::class)
             ->disableOriginalConstructor()
@@ -60,7 +61,6 @@ class ElasticEngineTest extends AbstractTestCase
             [
                 [
                     'index' => 'test',
-                    'type' => 'test',
                     'body' => [
                         '_source' => [
                             'title',
@@ -75,14 +75,11 @@ class ElasticEngineTest extends AbstractTestCase
                                     ],
                                 ],
                                 'filter' => [
-                                    'bool' => [
-                                        'must' => [
-                                            [
-                                                'range' => [
-                                                    'id' => [
-                                                        'gt' => 20,
-                                                    ],
-                                                ],
+                                    ['term' => ['type' => 'test']],
+                                    [
+                                        'range' => [
+                                            'id' => [
+                                                'gt' => 20,
                                             ],
                                         ],
                                     ],
@@ -116,7 +113,6 @@ class ElasticEngineTest extends AbstractTestCase
                 ],
                 [
                     'index' => 'test',
-                    'type' => 'test',
                     'body' => [
                         '_source' => [
                             'title',
@@ -131,14 +127,11 @@ class ElasticEngineTest extends AbstractTestCase
                                     ],
                                 ],
                                 'filter' => [
-                                    'bool' => [
-                                        'must' => [
-                                            [
-                                                'range' => [
-                                                    'id' => [
-                                                        'gt' => 20,
-                                                    ],
-                                                ],
+                                    ['term' => ['type' => 'test']],
+                                    [
+                                        'range' => [
+                                            'id' => [
+                                                'gt' => 20,
                                             ],
                                         ],
                                     ],
@@ -180,21 +173,17 @@ class ElasticEngineTest extends AbstractTestCase
             [
                 [
                     'index' => 'test',
-                    'type' => 'test',
                     'body' => [
                         'query' => [
                             'bool' => [
                                 'must' => [
-                                    'match_all' => new stdClass,
+                                    'match_all' => new stdClass(),
                                 ],
                                 'filter' => [
-                                    'bool' => [
-                                        'must' => [
-                                            [
-                                                'term' => [
-                                                    'foo' => 'bar',
-                                                ],
-                                            ],
+                                    ['term' => ['type' => 'test']],
+                                    [
+                                        'term' => [
+                                            'foo' => 'bar',
                                         ],
                                     ],
                                 ],
@@ -221,7 +210,6 @@ class ElasticEngineTest extends AbstractTestCase
             ->once()
             ->with([
                 'index' => 'test',
-                'type' => 'test',
                 'body' => [
                     '_source' => [
                         'title',
@@ -233,12 +221,12 @@ class ElasticEngineTest extends AbstractTestCase
                                     'query' => 'foo',
                                 ],
                             ],
+                            'filter' => [
+                                ['term' => ['type' => 'test']],
+                            ],
                         ],
                     ],
                 ],
-            ])
-            ->andReturn([
-                'count' => 1,
             ]);
 
         $model = $this->mockModel();
@@ -261,7 +249,6 @@ class ElasticEngineTest extends AbstractTestCase
             ->once()
             ->with([
                 'index' => 'test',
-                'type' => 'test',
                 'body' => [
                     'query' => [
                         'match' => [
@@ -296,13 +283,13 @@ class ElasticEngineTest extends AbstractTestCase
         $results = [
             'hits' => [
                 'hits' => [
-                    ['_id' => 1],
-                    ['_id' => 2],
+                    ['_id' => 'test_1', '_source' => ['type' => 'test']],
+                    ['_id' => 'test_2', '_source' => ['type' => 'test']],
                 ],
             ],
         ];
 
-        $this->assertSame(
+        $this->assertEquals(
             [1, 2],
             $this->engine->mapIds($results)->all()
         );
@@ -370,7 +357,7 @@ class ElasticEngineTest extends AbstractTestCase
             ->disableOriginalConstructor()
             ->getMock();
 
-        $this->assertSame(
+        $this->assertEquals(
             [$model],
             $this->engine->map($builder, $results, $model)->all()
         );
@@ -438,86 +425,10 @@ class ElasticEngineTest extends AbstractTestCase
             ->disableOriginalConstructor()
             ->getMock();
 
-        $this->assertSame(
+        $this->assertEquals(
             [$model],
             $this->engine->map($builder, $results, $model)->all()
         );
-    }
-
-    public function testMapReturnDatabaseCollection()
-    {
-        $this->markTestSkipped();
-
-        $results = [
-            'hits' => [
-                'total' => 2,
-                'hits' => [
-                    [
-                        '_id' => 1,
-                        '_source' => [
-                            'title' => 'foo',
-                        ],
-                    ],
-                    [
-                        '_id' => 2,
-                        '_source' => [
-                            'title' => 'bar',
-                        ],
-                    ],
-                ],
-            ],
-        ];
-
-        $model = $this->mockModel([
-            'key' => 2,
-            'methods' => [
-                'usesSoftDelete',
-                'newQuery',
-                'whereIn',
-                'get',
-                'keyBy',
-            ],
-        ]);
-
-        $model
-            ->method('usesSoftDelete')
-            ->willReturn(false);
-
-        $model
-            ->method('newQuery')
-            ->willReturn($model);
-
-        $model
-            ->method('whereIn')
-            ->willReturn($model);
-
-        $model
-            ->method('get')
-            ->willReturn($model);
-
-        // The mocked `newQuery` chain will return an array of a single model (ID: 2)
-        // When mapping `$results['hits']['hits']`, the first item (ID: 1) will return null in `Collection::map()`
-        // This will result in `Collection::toBase()` being called, converting to a `Support\Collection`
-        $model
-            ->method('keyBy')
-            ->willReturn([
-                2 => $model,
-            ]);
-
-        $builder = $this
-            ->getMockBuilder(FilterBuilder::class)
-            ->disableOriginalConstructor()
-            ->getMock();
-
-        $collection = $this->engine->map($builder, $results, $model);
-
-        $this->assertSame(
-            [$model],
-            $collection->all()
-        );
-
-        // Assert that an `Eloquent\Database\Collection` is returned
-        $this->assertInstanceOf(Collection::class, $collection);
     }
 
     public function testGetTotalCount()
@@ -531,7 +442,7 @@ class ElasticEngineTest extends AbstractTestCase
             ],
         ];
 
-        $this->assertSame(
+        $this->assertEquals(
             100,
             $this->engine->getTotalCount($results)
         );

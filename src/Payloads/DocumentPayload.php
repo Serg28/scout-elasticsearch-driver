@@ -1,6 +1,6 @@
 <?php
 
-namespace ScoutElastic\Payloads;
+namespace Novius\ScoutElastic\Payloads;
 
 use Exception;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +10,7 @@ class DocumentPayload extends TypePayload
     /**
      * DocumentPayload constructor.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @param \Illuminate\Database\Eloquent\Model $model
      * @throws \Exception
      * @return void
      */

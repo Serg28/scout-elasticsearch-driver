@@ -1,15 +1,29 @@
 <?php
 
-namespace ScoutElastic\Tests;
+namespace Novius\ScoutElastic\Test;
 
-use PHPUnit\Framework\TestCase;
+use Novius\ScoutElastic\ScoutElasticServiceProvider;
+use Orchestra\Testbench\TestCase as Orchestra;
 
-abstract class AbstractTestCase extends TestCase
+abstract class AbstractTestCase extends Orchestra
 {
-    protected function tearDown(): void
+    /**
+     * Define environment setup.
+     *
+     * @param  \Illuminate\Foundation\Application   $app
+     *
+     * @return void
+     */
+    protected function getEnvironmentSetUp($app)
     {
-        parent::tearDown();
+        $defaultConfig = include __DIR__.'/../config/scout_elastic.php';
+        app('config')->set('scout_elastic', $defaultConfig);
+    }
 
-        Config::reset();
+    protected function getPackageProviders($app)
+    {
+        return [
+            ScoutElasticServiceProvider::class,
+        ];
     }
 }

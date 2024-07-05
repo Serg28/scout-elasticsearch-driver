@@ -1,28 +1,23 @@
 <?php
 
-namespace ScoutElastic;
+namespace Novius\ScoutElastic;
 
 use Elasticsearch\ClientBuilder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
-use InvalidArgumentException;
 use Laravel\Scout\EngineManager;
-use ScoutElastic\Console\ElasticIndexCreateCommand;
-use ScoutElastic\Console\ElasticIndexDropCommand;
-use ScoutElastic\Console\ElasticIndexUpdateCommand;
-use ScoutElastic\Console\ElasticMigrateModelCommand;
-use ScoutElastic\Console\ElasticUpdateMappingCommand;
-use ScoutElastic\Console\IndexConfiguratorMakeCommand;
-use ScoutElastic\Console\SearchableModelMakeCommand;
-use ScoutElastic\Console\SearchRuleMakeCommand;
+use Novius\ScoutElastic\Console\ElasticIndexCreateCommand;
+use Novius\ScoutElastic\Console\ElasticIndexDropCommand;
+use Novius\ScoutElastic\Console\ElasticIndexReindexCommand;
+use Novius\ScoutElastic\Console\IndexConfiguratorMakeCommand;
+use Novius\ScoutElastic\Console\SearchableModelMakeCommand;
+use Novius\ScoutElastic\Console\SearchRuleMakeCommand;
+use Novius\ScoutElastic\Indexers\BulkIndexer;
 
 class ScoutElasticServiceProvider extends ServiceProvider
 {
-    /**
-     * Boot the service provider.
-     *
-     * @return void
-     */
     public function boot()
     {
         $this->publishes([
@@ -37,29 +32,15 @@ class ScoutElasticServiceProvider extends ServiceProvider
 
             // elastic commands
             ElasticIndexCreateCommand::class,
-            ElasticIndexUpdateCommand::class,
             ElasticIndexDropCommand::class,
-            ElasticUpdateMappingCommand::class,
-            ElasticMigrateModelCommand::class,
+            ElasticIndexReindexCommand::class,
         ]);
 
         $this
             ->app
             ->make(EngineManager::class)
             ->extend('elastic', function () {
-                $indexerType = config('scout_elastic.indexer', 'single');
-                $updateMapping = config('scout_elastic.update_mapping', true);
-
-                $indexerClass = '\\ScoutElastic\\Indexers\\'.ucfirst($indexerType).'Indexer';
-
-                if (! class_exists($indexerClass)) {
-                    throw new InvalidArgumentException(sprintf(
-                        'The %s indexer doesn\'t exist.',
-                        $indexerType
-                    ));
-                }
-
-                return new ElasticEngine(new $indexerClass, $updateMapping);
+                return new ElasticEngine(new BulkIndexer());
             });
     }
 
@@ -74,6 +55,13 @@ class ScoutElasticServiceProvider extends ServiceProvider
             ->app
             ->singleton('scout_elastic.client', function () {
                 $config = Config::get('scout_elastic.client');
+
+                $logChannels = config('scout_elastic.log_channels', []);
+                if (config('scout_elastic.log_enabled', false) && is_array($logChannels) && ! empty($logChannels)) {
+                    $config['logger'] = Log::stack($logChannels);
+                } else {
+                    Arr::forget($config, 'logger');
+                }
 
                 return ClientBuilder::fromConfig($config);
             });

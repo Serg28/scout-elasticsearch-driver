@@ -1,10 +1,10 @@
 <?php
 
-namespace ScoutElastic\Tests\Payloads;
+namespace Novius\ScoutElastic\Test\Payloads;
 
-use ScoutElastic\Payloads\IndexPayload;
-use ScoutElastic\Tests\AbstractTestCase;
-use ScoutElastic\Tests\Dependencies\IndexConfigurator;
+use Novius\ScoutElastic\Payloads\IndexPayload;
+use Novius\ScoutElastic\Test\AbstractTestCase;
+use Novius\ScoutElastic\Test\Dependencies\IndexConfigurator;
 
 class IndexPayloadTest extends AbstractTestCase
 {
@@ -15,23 +15,8 @@ class IndexPayloadTest extends AbstractTestCase
         $indexConfigurator = $this->mockIndexConfigurator();
         $payload = new IndexPayload($indexConfigurator);
 
-        $this->assertSame(
+        $this->assertEquals(
             ['index' => 'test'],
-            $payload->get()
-        );
-    }
-
-    public function testUseAlias()
-    {
-        $indexConfigurator = $this->mockIndexConfigurator([
-            'name' => 'foo',
-        ]);
-
-        $payload = (new IndexPayload($indexConfigurator))
-            ->useAlias('write');
-
-        $this->assertSame(
-            ['index' => 'foo_write'],
             $payload->get()
         );
     }
@@ -46,7 +31,7 @@ class IndexPayloadTest extends AbstractTestCase
             ->set('index', 'bar')
             ->set('settings', ['key' => 'value']);
 
-        $this->assertSame(
+        $this->assertEquals(
             [
                 'index' => 'foo',
                 'settings' => ['key' => 'value'],

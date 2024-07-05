@@ -1,6 +1,6 @@
 <?php
 
-namespace ScoutElastic\Facades;
+namespace Novius\ScoutElastic\Facades;
 
 use Illuminate\Support\Facades\Facade;
 

@@ -1,16 +1,11 @@
 <?php
 
-namespace ScoutElastic\Tests\Stubs;
+namespace Novius\ScoutElastic\Test\Stubs;
 
+use Novius\ScoutElastic\Searchable;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use ScoutElastic\Searchable;
 
 class Model extends \Illuminate\Database\Eloquent\Model
 {
-    use Searchable, SoftDeletes;
-
-    public static function bootSearchable()
-    {
-        // do nothing
-    }
+    use Searchable;use SoftDeletes;
 }

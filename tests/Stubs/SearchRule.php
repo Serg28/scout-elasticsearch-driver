@@ -1,8 +1,8 @@
 <?php
 
-namespace ScoutElastic\Tests\Stubs;
+namespace Novius\ScoutElastic\Test\Stubs;
 
-use ScoutElastic\SearchRule as ElasticSearchRule;
+use Novius\ScoutElastic\SearchRule as ElasticSearchRule;
 
 class SearchRule extends ElasticSearchRule
 {

@@ -1,11 +1,11 @@
 <?php
 
-namespace ScoutElastic\Tests\Builders;
+namespace Novius\ScoutElastic\Test\Builders;
 
-use ScoutElastic\Builders\SearchBuilder;
-use ScoutElastic\SearchRule;
-use ScoutElastic\Tests\AbstractTestCase;
-use ScoutElastic\Tests\Dependencies\Model;
+use Novius\ScoutElastic\SearchRule;
+use Novius\ScoutElastic\Builders\SearchBuilder;
+use Novius\ScoutElastic\Test\AbstractTestCase;
+use Novius\ScoutElastic\Test\Dependencies\Model;
 
 class SearchBuilderTest extends AbstractTestCase
 {
@@ -27,7 +27,7 @@ class SearchBuilderTest extends AbstractTestCase
 
         $builder->rule(SearchRule::class)->rule($ruleFunc);
 
-        $this->assertSame([
+        $this->assertEquals([
             SearchRule::class,
             $ruleFunc,
         ], $builder->rules);

@@ -1,8 +1,8 @@
 <?php
 
-namespace ScoutElastic;
+namespace Novius\ScoutElastic;
 
-use ScoutElastic\Builders\SearchBuilder;
+use Novius\ScoutElastic\Builders\SearchBuilder;
 
 class SearchRule
 {
@@ -16,7 +16,7 @@ class SearchRule
     /**
      * SearchRule constructor.
      *
-     * @param  \ScoutElastic\Builders\SearchBuilder  $builder
+     * @param \ScoutElastic\Builders\SearchBuilder $builder
      * @return void
      */
     public function __construct(SearchBuilder $builder)

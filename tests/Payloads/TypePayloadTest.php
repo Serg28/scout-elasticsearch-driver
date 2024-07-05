@@ -1,10 +1,10 @@
 <?php
 
-namespace ScoutElastic\Tests\Payloads;
+namespace Novius\ScoutElastic\Test\Payloads;
 
-use ScoutElastic\Payloads\TypePayload;
-use ScoutElastic\Tests\AbstractTestCase;
-use ScoutElastic\Tests\Dependencies\Model;
+use Novius\ScoutElastic\Payloads\TypePayload;
+use Novius\ScoutElastic\Test\AbstractTestCase;
+use Novius\ScoutElastic\Test\Dependencies\Model;
 
 class TypePayloadTest extends AbstractTestCase
 {
@@ -15,10 +15,9 @@ class TypePayloadTest extends AbstractTestCase
         $model = $this->mockModel();
         $payload = new TypePayload($model);
 
-        $this->assertSame(
+        $this->assertEquals(
             [
                 'index' => 'test',
-                'type' => 'test',
             ],
             $payload->get()
         );
@@ -40,10 +39,9 @@ class TypePayloadTest extends AbstractTestCase
             ->set('type', 'test_type')
             ->set('body', []);
 
-        $this->assertSame(
+        $this->assertEquals(
             [
                 'index' => 'foo',
-                'type' => 'bar',
                 'body' => [],
             ],
             $payload->get()

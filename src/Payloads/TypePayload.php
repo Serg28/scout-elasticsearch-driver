@@ -1,10 +1,10 @@
 <?php
 
-namespace ScoutElastic\Payloads;
+namespace Novius\ScoutElastic\Payloads;
 
 use Exception;
+use Novius\ScoutElastic\Searchable;
 use Illuminate\Database\Eloquent\Model;
-use ScoutElastic\Searchable;
 
 class TypePayload extends IndexPayload
 {
@@ -18,7 +18,7 @@ class TypePayload extends IndexPayload
     /**
      * TypePayload constructor.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @param \Illuminate\Database\Eloquent\Model $model
      * @throws \Exception
      * @return void
      */
@@ -36,7 +36,6 @@ class TypePayload extends IndexPayload
 
         parent::__construct($model->getIndexConfigurator());
 
-        $this->payload['type'] = $model->searchableAs();
         $this->protectedKeys[] = 'type';
     }
 }
