@@ -102,6 +102,7 @@ class ElasticEngine extends Engine
                 ->setIfNotEmpty('body.aggregations', $builder->aggregations)
                 ->setIfNotEmpty('body.explain', $options['explain'] ?? null)
                 ->setIfNotEmpty('body.profile', $options['profile'] ?? null)
+                ->setIfNotEmpty('body.min_score', $builder->minScore)
                 ->setIfNotNull('body.from', $builder->offset)
                 ->setIfNotNull('body.size', $builder->limit);
 
@@ -343,7 +344,8 @@ class ElasticEngine extends Engine
      */
     protected function getModelIDFromHit($hit)
     {
-        return str_replace($hit['_source']['type'].'_', '', $hit['_id']);
+        //return str_replace($hit['_source']['type'].'_', '', $hit['_id']);
+        return isset($hit['_source']['type']) ? str_replace($hit['_source']['type'].'_', '', $hit['_id']): last(explode('_', $hit['_id']));
     }
 
     public function lazyMap(Builder $builder, $results, $model)
