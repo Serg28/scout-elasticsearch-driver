@@ -5,6 +5,7 @@ namespace Novius\ScoutElastic;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
+use Illuminate\Support\LazyCollection;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Novius\ScoutElastic\Builders\SearchBuilder;
@@ -350,7 +351,44 @@ class ElasticEngine extends Engine
 
     public function lazyMap(Builder $builder, $results, $model)
     {
-        // TODO: Implement lazyMap() method.
+        if ($this->getTotalCount($results) == 0) {
+            return LazyCollection::make();
+        }
+
+        $scoutKeyName = $model->getScoutKeyName();
+
+        $columns = Arr::get($results, '_payload.body._source');
+
+        if (is_null($columns)) {
+            $columns = ['*'];
+        } else {
+            $columns[] = $scoutKeyName;
+        }
+
+        $ids = $this->mapIds($results)->all();
+
+        $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
+
+        // Получение моделей частями с использованием LazyCollection
+        $models = $query->whereIn($scoutKeyName, $ids)->cursor()->keyBy($scoutKeyName);
+
+        return LazyCollection::make($results['hits']['hits'])
+            ->map(function ($hit) use ($models, $scoutKeyName) {
+                $id = $this->getModelIDFromHit($hit);
+
+                $model = $models->firstWhere($scoutKeyName, $id);
+                if ($model) {
+                    $model->_score = $hit['_score'];
+
+                    if (isset($hit['highlight'])) {
+                        $model->highlight = new Highlight($hit['highlight']);
+                    }
+
+                    return $model;
+                }
+            })
+            ->filter()
+            ->values();
     }
 
     public function createIndex($name, array $options = [])
