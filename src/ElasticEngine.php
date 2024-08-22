@@ -103,13 +103,14 @@ class ElasticEngine extends Engine
                 ->setIfNotEmpty('body.aggregations', $builder->aggregations)
                 ->setIfNotEmpty('body.explain', $options['explain'] ?? null)
                 ->setIfNotEmpty('body.profile', $options['profile'] ?? null)
-                ->setIfNotEmpty('body.min_score', $builder->minScore)
                 ->setIfNotNull('body.from', $builder->offset)
-                ->setIfNotNull('body.size', $builder->limit);
+                ->setIfNotNull('body.size', $builder->limit)
+
+                ->setIfNotEmpty('body.query.bool.filter.bool.minimum_should_match', $builder->minimumShouldMatch);
 
             foreach ($builder->wheres as $clause => $filters) {
-                //$clauseKey = 'body.query.bool.filter.bool.'.$clause;
-                $clauseKey = 'body.query.bool.filter';
+                $clauseKey = 'body.query.bool.filter.bool.'.$clause;
+                //$clauseKey = 'body.query.bool.filter';  // Это последний рабочий вариант, но не работает с orWhere
 
                 $clauseValue = array_merge(
                     $payload->get($clauseKey, []),
@@ -117,6 +118,7 @@ class ElasticEngine extends Engine
                 );
 
                 $payload->setIfNotEmpty($clauseKey, $clauseValue);
+
             }
 
             return $payload->get();
@@ -346,7 +348,7 @@ class ElasticEngine extends Engine
     protected function getModelIDFromHit($hit)
     {
         //return str_replace($hit['_source']['type'].'_', '', $hit['_id']);
-        return isset($hit['_source']['type']) ? str_replace($hit['_source']['type'].'_', '', $hit['_id']): last(explode('_', $hit['_id']));
+        return last(explode('_',$hit['_id']));
     }
 
     public function lazyMap(Builder $builder, $results, $model)
