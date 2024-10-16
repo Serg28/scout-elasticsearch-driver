@@ -110,6 +110,21 @@ document_refresh | This option controls when updated documents appear in the sea
 
 Note, that if you use the bulk document indexing you'll probably want to change the chunk size, you can do that in the `config/scout.php` file.
 
+
+## Added
+
+### Disable db hydration per model
+https://github.com/babenkoivan/scout-elasticsearch-driver/pull/218
+
+Handles model property (boolean) $databaseHydrate to add option to disable database data hydration
+
+У модели устанавливаем свойство:
+```php
+    public bool $databaseHydrate = false;
+```
+При false будут возвращаться также и "виртуальные" атрибуты, как они определены в индексе и перечислены в $fillable
+При true из индекса возвращается реальная модель, как при обычном eloquent-запросе, без "виртуальных" атрибутов
+
 ## Usage
 
 Please read the [original package documentation](https://github.com/babenkoivan/scout-elasticsearch-driver). 

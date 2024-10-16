@@ -281,7 +281,7 @@ class ElasticEngine extends Engine
             return Collection::make();
         }
 
-        $scoutKeyName = $model->getScoutKeyName();
+        /*$scoutKeyName = $model->getScoutKeyName();
 
         $columns = Arr::get($results, '_payload.body._source');
 
@@ -298,12 +298,14 @@ class ElasticEngine extends Engine
         $models = $query
             ->whereIn($scoutKeyName, $ids)
             ->get($columns)
-            ->keyBy($scoutKeyName);
+            ->keyBy($scoutKeyName);*/
+        //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/218/commits/93fd1b2cbb582ca2d3544e078ef303a6de2e0622
+        $models = $this->hydrateModels($model, $results);
 
         return Collection::make($results['hits']['hits'])
-            ->map(function ($hit) use ($models) {
-                $id = $this->getModelIDFromHit($hit);
-
+            ->map(function ($hit) use ($models, $model) {
+                //$id = $this->getModelIDFromHit($hit);
+                $id = $model->databaseHydrate ? $this->getModelIDFromHit($hit) : $hit['_id']; //add
                 if (isset($models[$id])) {
                     $model = $models[$id];
                     $model->_score = $hit['_score'];
@@ -402,5 +404,50 @@ class ElasticEngine extends Engine
     {
         // TODO: Implement deleteIndex() method.
         $this->indexer->delete($name);
+    }
+
+    /**
+     * @param $model
+     * @param $results
+     * @return Collection
+     */
+    //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/218/commits/93fd1b2cbb582ca2d3544e078ef303a6de2e0622
+    public function hydrateModels($model, $results)
+    {
+        // Hydrate models from elastic index
+        if ($model->databaseHydrate === false) {
+            $hits = collect($results['hits']['hits']);
+            $className = get_class($model);
+            $models = new Collection();
+
+            $hits->each(function ($item, $key) use ($className, $model, $models) {
+                //$attributes = $item['_source'];
+                $attributes = Arr::get($item['_source'], $model->indexAttributesPrefix);
+                $models->put($item['_id'], new $className($attributes));
+            });
+        }
+        // Hydrate models from database
+        else {
+            $scoutKeyName = $model->getScoutKeyName();
+
+            $columns = Arr::get($results, '_payload.body._source');
+
+            if (is_null($columns)) {
+                $columns = ['*'];
+            } else {
+                $columns[] = $scoutKeyName;
+            }
+
+            $ids = $this->mapIds($results)->all();
+
+            $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
+
+            $models = $query
+                ->whereIn($scoutKeyName, $ids)
+                ->get($columns)
+                ->keyBy($scoutKeyName);
+        }
+
+        return $models;
     }
 }
