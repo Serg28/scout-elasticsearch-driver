@@ -47,7 +47,7 @@ trait Searchable
     /**
      * Get the index configurator.
      *
-     * @return \ScoutElastic\IndexConfigurator
+     * @return Novius\ScoutElastic\IndexConfigurator
      * @throws \Exception
      */
     public function getIndexConfigurator()
@@ -78,6 +78,17 @@ trait Searchable
     {
         return isset($this->searchRules) && count($this->searchRules) > 0 ?
             $this->searchRules : [SearchRule::class];
+    }
+
+    /**
+     * Get the search rules.
+     *
+     * @return array
+     */
+    public function getSearchSettings()
+    {
+        return isset($this->searchSettings) && count($this->searchSettings) > 0 ?
+            $this->searchSettings : [];
     }
 
     /**

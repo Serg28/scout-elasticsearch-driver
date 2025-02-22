@@ -121,6 +121,12 @@ class ElasticEngine extends Engine
 
             }
 
+            $settings = $builder->model->getSearchSettings();
+            foreach ($settings as $setting => $value) {
+                $settingKey = 'body.'.$setting;
+                $payload->setIfNotEmpty($settingKey, $value);
+            }
+
             return $payload->get();
         });
     }
@@ -313,7 +319,6 @@ class ElasticEngine extends Engine
                     if (isset($hit['highlight'])) {
                         $model->highlight = new Highlight($hit['highlight']);
                     }
-
                     return $model;
                 }
             })
