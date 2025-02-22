@@ -1,10 +1,10 @@
 <?php
 
-namespace ScoutElastic\Payloads;
+namespace Novius\ScoutElastic\Payloads;
 
 use Exception;
-use ScoutElastic\IndexConfigurator;
-use ScoutElastic\Payloads\Features\HasProtectedKeys;
+use Novius\ScoutElastic\IndexConfigurator;
+use Novius\ScoutElastic\Payloads\Features\HasProtectedKeys;
 
 class IndexPayload extends RawPayload
 {
@@ -29,20 +29,34 @@ class IndexPayload extends RawPayload
     /**
      * IndexPayload constructor.
      *
-     * @param  \ScoutElastic\IndexConfigurator  $indexConfigurator
+     * @param \ScoutElastic\IndexConfigurator $indexConfigurator
      * @return void
      */
-    public function __construct(IndexConfigurator $indexConfigurator)
+    public function __construct(IndexConfigurator $indexConfigurator, $isCreationPayload = false)
     {
         $this->indexConfigurator = $indexConfigurator;
 
-        $this->payload['index'] = $indexConfigurator->getName();
+        $this->payload['index'] = $indexConfigurator->getName($isCreationPayload);
+    }
+
+    /**
+     * Use a specific index.
+     *
+     * @param string $indexName
+     * @return $this
+     * @throws \Exception
+     */
+    public function useIndex(string $indexName)
+    {
+        $this->payload['index'] = $indexName;
+
+        return $this;
     }
 
     /**
      * Use an alias.
      *
-     * @param  string  $alias
+     * @param string $alias
      * @return $this
      * @throws \Exception
      */

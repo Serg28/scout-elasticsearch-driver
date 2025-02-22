@@ -1,10 +1,9 @@
 <?php
 
-namespace ScoutElastic\Console\Features;
+namespace Novius\ScoutElastic\Console\Features;
 
 use InvalidArgumentException;
-use ScoutElastic\IndexConfigurator;
-use Symfony\Component\Console\Input\InputArgument;
+use Novius\ScoutElastic\IndexConfigurator;
 
 trait RequiresIndexConfiguratorArgument
 {
@@ -17,7 +16,7 @@ trait RequiresIndexConfiguratorArgument
     {
         $configuratorClass = trim($this->argument('index-configurator'));
 
-        $configuratorInstance = new $configuratorClass;
+        $configuratorInstance = new $configuratorClass();
 
         if (! ($configuratorInstance instanceof IndexConfigurator)) {
             throw new InvalidArgumentException(sprintf(
@@ -27,22 +26,6 @@ trait RequiresIndexConfiguratorArgument
             ));
         }
 
-        return new $configuratorClass;
-    }
-
-    /**
-     * Get the arguments.
-     *
-     * @return array
-     */
-    protected function getArguments()
-    {
-        return [
-            [
-                'index-configurator',
-                InputArgument::REQUIRED,
-                'The index configurator class',
-            ],
-        ];
+        return new $configuratorClass();
     }
 }

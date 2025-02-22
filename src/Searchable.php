@@ -1,16 +1,16 @@
 <?php
 
-namespace ScoutElastic;
+namespace Novius\ScoutElastic;
 
 use Exception;
-use Illuminate\Support\Arr;
+use Novius\ScoutElastic\Builders\FilterBuilder;
+use Novius\ScoutElastic\Builders\SearchBuilder;
 use Laravel\Scout\Searchable as SourceSearchable;
-use ScoutElastic\Builders\FilterBuilder;
-use ScoutElastic\Builders\SearchBuilder;
 
 trait Searchable
 {
     use SourceSearchable {
+        SourceSearchable::bootSearchable as sourceBootSearchable;
         SourceSearchable::getScoutKeyName as sourceGetScoutKeyName;
     }
 
@@ -22,9 +22,32 @@ trait Searchable
     private $highlight = null;
 
     /**
+     * Defines if the model is searchable.
+     *
+     * @var bool
+     */
+    protected static $isSearchableTraitBooted = false;
+
+    /**
+     * Boot the trait.
+     *
+     * @return void
+     */
+    public static function bootSearchable()
+    {
+        if (static::$isSearchableTraitBooted) {
+            return;
+        }
+
+        self::sourceBootSearchable();
+
+        static::$isSearchableTraitBooted = true;
+    }
+
+    /**
      * Get the index configurator.
      *
-     * @return \ScoutElastic\IndexConfigurator
+     * @return Novius\ScoutElastic\IndexConfigurator
      * @throws \Exception
      */
     public function getIndexConfigurator()
@@ -40,26 +63,10 @@ trait Searchable
             }
 
             $indexConfiguratorClass = $this->indexConfigurator;
-            $indexConfigurator = new $indexConfiguratorClass;
+            $indexConfigurator = new $indexConfiguratorClass();
         }
 
         return $indexConfigurator;
-    }
-
-    /**
-     * Get the mapping.
-     *
-     * @return array
-     */
-    public function getMapping()
-    {
-        $mapping = $this->mapping ?? [];
-
-        if ($this::usesSoftDelete() && config('scout.soft_delete', false)) {
-            Arr::set($mapping, 'properties.__soft_deleted', ['type' => 'integer']);
-        }
-
-        return $mapping;
     }
 
     /**
@@ -74,32 +81,43 @@ trait Searchable
     }
 
     /**
+     * Get the search rules.
+     *
+     * @return array
+     */
+    public function getSearchSettings()
+    {
+        return isset($this->searchSettings) && count($this->searchSettings) > 0 ?
+            $this->searchSettings : [];
+    }
+
+    /**
      * Execute the search.
      *
-     * @param  string  $query
-     * @param  callable|null  $callback
+     * @param string $query
+     * @param callable|null $callback
      * @return \ScoutElastic\Builders\FilterBuilder|\ScoutElastic\Builders\SearchBuilder
      */
     public static function search($query, $callback = null)
     {
         $softDelete = static::usesSoftDelete() && config('scout.soft_delete', false);
 
-        if ($query === '*') {
-            return new FilterBuilder(new static, $callback, $softDelete);
+        if ($query == '*') {
+            return new FilterBuilder(new static(), $callback, $softDelete);
         } else {
-            return new SearchBuilder(new static, $query, $callback, $softDelete);
+            return new SearchBuilder(new static(), $query, $callback, $softDelete);
         }
     }
 
     /**
      * Execute a raw search.
      *
-     * @param  array  $query
+     * @param array $query
      * @return array
      */
     public static function searchRaw(array $query)
     {
-        $model = new static;
+        $model = new static();
 
         return $model->searchableUsing()
             ->searchRaw($model, $query);
@@ -108,7 +126,7 @@ trait Searchable
     /**
      * Set the highlight attribute.
      *
-     * @param  \ScoutElastic\Highlight  $value
+     * @param \ScoutElastic\Highlight $value
      * @return void
      */
     public function setHighlightAttribute(Highlight $value)
@@ -134,5 +152,10 @@ trait Searchable
     public function getScoutKeyName()
     {
         return $this->getKeyName();
+    }
+
+    public function getScoutKey()
+    {
+        return $this->searchableAs().'_'.$this->getKey();
     }
 }

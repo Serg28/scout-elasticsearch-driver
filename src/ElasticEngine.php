@@ -1,17 +1,17 @@
 <?php
 
-namespace ScoutElastic;
+namespace Novius\ScoutElastic;
 
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\LazyCollection;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
-use ScoutElastic\Builders\SearchBuilder;
-use ScoutElastic\Facades\ElasticClient;
-use ScoutElastic\Indexers\IndexerInterface;
-use ScoutElastic\Payloads\TypePayload;
+use Novius\ScoutElastic\Builders\SearchBuilder;
+use Novius\ScoutElastic\Facades\ElasticClient;
+use Novius\ScoutElastic\Indexers\IndexerInterface;
+use Novius\ScoutElastic\Payloads\TypePayload;
 use stdClass;
 
 class ElasticEngine extends Engine
@@ -24,31 +24,14 @@ class ElasticEngine extends Engine
     protected $indexer;
 
     /**
-     * Should the mapping be updated.
-     *
-     * @var bool
-     */
-    protected $updateMapping;
-
-    /**
-     * The updated mappings.
-     *
-     * @var array
-     */
-    protected static $updatedMappings = [];
-
-    /**
      * ElasticEngine constructor.
      *
-     * @param  \ScoutElastic\Indexers\IndexerInterface  $indexer
-     * @param  bool  $updateMapping
+     * @param \ScoutElastic\Indexers\IndexerInterface $indexer
      * @return void
      */
-    public function __construct(IndexerInterface $indexer, $updateMapping)
+    public function __construct(IndexerInterface $indexer)
     {
         $this->indexer = $indexer;
-
-        $this->updateMapping = $updateMapping;
     }
 
     /**
@@ -56,25 +39,6 @@ class ElasticEngine extends Engine
      */
     public function update($models)
     {
-        if ($this->updateMapping) {
-            $self = $this;
-
-            $models->each(function ($model) use ($self) {
-                $modelClass = get_class($model);
-
-                if (in_array($modelClass, $self::$updatedMappings)) {
-                    return true;
-                }
-
-                Artisan::call(
-                    'elastic:update-mapping',
-                    ['model' => $modelClass]
-                );
-
-                $self::$updatedMappings[] = $modelClass;
-            });
-        }
-
         $this
             ->indexer
             ->update($models);
@@ -88,22 +52,11 @@ class ElasticEngine extends Engine
         $this->indexer->delete($models);
     }
 
-    public function deleteIndex($models)
-    {
-        $this->indexer->delete($models);
-    }
-
-    public function createIndex($name, array $options = []) {
-
-    }
-    public function lazyMap(Builder $builder, $results, $model) {
-
-    }
     /**
      * Build the payload collection.
      *
-     * @param  \Laravel\Scout\Builder  $builder
-     * @param  array  $options
+     * @param \Laravel\Scout\Builder $builder
+     * @param array $options
      * @return \Illuminate\Support\Collection
      */
     public function buildSearchQueryPayloadCollection(Builder $builder, array $options = [])
@@ -137,7 +90,7 @@ class ElasticEngine extends Engine
             }
         } else {
             $payload = (new TypePayload($builder->model))
-                ->setIfNotEmpty('body.query.bool.must.match_all', new stdClass);
+                ->setIfNotEmpty('body.query.bool.must.match_all', new stdClass());
 
             $payloadCollection->push($payload);
         }
@@ -150,12 +103,14 @@ class ElasticEngine extends Engine
                 ->setIfNotEmpty('body.aggregations', $builder->aggregations)
                 ->setIfNotEmpty('body.explain', $options['explain'] ?? null)
                 ->setIfNotEmpty('body.profile', $options['profile'] ?? null)
-                ->setIfNotEmpty('body.min_score', $builder->minScore)
                 ->setIfNotNull('body.from', $builder->offset)
-                ->setIfNotNull('body.size', $builder->limit);
+                ->setIfNotNull('body.size', $builder->limit)
+
+                ->setIfNotEmpty('body.query.bool.filter.bool.minimum_should_match', $builder->minimumShouldMatch);
 
             foreach ($builder->wheres as $clause => $filters) {
                 $clauseKey = 'body.query.bool.filter.bool.'.$clause;
+                //$clauseKey = 'body.query.bool.filter';  // Это последний рабочий вариант, но не работает с orWhere
 
                 $clauseValue = array_merge(
                     $payload->get($clauseKey, []),
@@ -163,6 +118,13 @@ class ElasticEngine extends Engine
                 );
 
                 $payload->setIfNotEmpty($clauseKey, $clauseValue);
+
+            }
+
+            $settings = $builder->model->getSearchSettings();
+            foreach ($settings as $setting => $value) {
+                $settingKey = 'body.'.$setting;
+                $payload->setIfNotEmpty($settingKey, $value);
             }
 
             return $payload->get();
@@ -172,8 +134,8 @@ class ElasticEngine extends Engine
     /**
      * Perform the search.
      *
-     * @param  \Laravel\Scout\Builder  $builder
-     * @param  array  $options
+     * @param \Laravel\Scout\Builder $builder
+     * @param array $options
      * @return array|mixed
      */
     protected function performSearch(Builder $builder, array $options = [])
@@ -227,7 +189,7 @@ class ElasticEngine extends Engine
     /**
      * Explain the search.
      *
-     * @param  \Laravel\Scout\Builder  $builder
+     * @param \Laravel\Scout\Builder $builder
      * @return array|mixed
      */
     public function explain(Builder $builder)
@@ -240,7 +202,7 @@ class ElasticEngine extends Engine
     /**
      * Profile the search.
      *
-     * @param  \Laravel\Scout\Builder  $builder
+     * @param \Laravel\Scout\Builder $builder
      * @return array|mixed
      */
     public function profile(Builder $builder)
@@ -250,6 +212,12 @@ class ElasticEngine extends Engine
         ]);
     }
 
+    /**
+     * Aggregations for the search.
+     *
+     * @param \Laravel\Scout\Builder $builder
+     * @return array|mixed
+     */
     public function aggregations(Builder $builder, $aggregations)
     {
         return $this->performSearch($builder, [
@@ -260,7 +228,7 @@ class ElasticEngine extends Engine
     /**
      * Return the number of documents found.
      *
-     * @param  \Laravel\Scout\Builder  $builder
+     * @param \Laravel\Scout\Builder $builder
      * @return int
      */
     public function count(Builder $builder)
@@ -272,7 +240,7 @@ class ElasticEngine extends Engine
             ->each(function ($payload) use (&$count) {
                 $result = ElasticClient::count($payload);
 
-                $count = $result['count'];
+                $count = $result['count'] ?? 0;
 
                 if ($count > 0) {
                     return false;
@@ -285,8 +253,8 @@ class ElasticEngine extends Engine
     /**
      * Make a raw search.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  array  $query
+     * @param \Illuminate\Database\Eloquent\Model $model
+     * @param array $query
      * @return mixed
      */
     public function searchRaw(Model $model, $query)
@@ -303,7 +271,11 @@ class ElasticEngine extends Engine
      */
     public function mapIds($results)
     {
-        return collect($results['hits']['hits'])->pluck('_id');
+        return collect($results['hits']['hits'])->map(function ($result) {
+            $result['_id'] = $this->getModelIDFromHit($result);
+
+            return $result;
+        })->pluck('_id');
     }
 
     /**
@@ -311,11 +283,11 @@ class ElasticEngine extends Engine
      */
     public function map(Builder $builder, $results, $model)
     {
-        if ($this->getTotalCount($results) === 0) {
+        if ($this->getTotalCount($results) == 0) {
             return Collection::make();
         }
 
-        $scoutKeyName = $model->getScoutKeyName();
+        /*$scoutKeyName = $model->getScoutKeyName();
 
         $columns = Arr::get($results, '_payload.body._source');
 
@@ -331,35 +303,27 @@ class ElasticEngine extends Engine
 
         $models = $query
             ->whereIn($scoutKeyName, $ids)
-            ->when($builder->queryCallback, function ($query, $callback) {
-                return $callback($query);
-            })
             ->get($columns)
-            ->keyBy($scoutKeyName);
+            ->keyBy($scoutKeyName);*/
+        //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/218/commits/93fd1b2cbb582ca2d3544e078ef303a6de2e0622
+        $models = $this->hydrateModels($model, $results);
 
-        $values = Collection::make($results['hits']['hits'])
-            ->map(function ($hit) use ($models) {
-                $id = $hit['_id'];
-
+        return Collection::make($results['hits']['hits'])
+            ->map(function ($hit) use ($models, $model) {
+                //$id = $this->getModelIDFromHit($hit);
+                $id = $model->databaseHydrate ? $this->getModelIDFromHit($hit) : $hit['_id']; //add
                 if (isset($models[$id])) {
                     $model = $models[$id];
+                    $model->_score = $hit['_score'];
 
                     if (isset($hit['highlight'])) {
                         $model->highlight = new Highlight($hit['highlight']);
                     }
-
-                    //add sort information to results for use
-                    if (isset($hit['sort'])) {
-                        $model->sortPayload = $hit['sort'];
-                    }
-
                     return $model;
                 }
             })
             ->filter()
             ->values();
-
-        return $values instanceof Collection ? $values : Collection::make($values);
     }
 
     /**
@@ -380,5 +344,115 @@ class ElasticEngine extends Engine
         $query
             ->orderBy($model->getScoutKeyName())
             ->unsearchable();
+    }
+
+    /**
+     * Extract model ID from hit (by removing prefix type)
+     *
+     * @param $hit
+     * @return mixed
+     */
+    protected function getModelIDFromHit($hit)
+    {
+        //return str_replace($hit['_source']['type'].'_', '', $hit['_id']);
+        return last(explode('_',$hit['_id']));
+    }
+
+    public function lazyMap(Builder $builder, $results, $model)
+    {
+        if ($this->getTotalCount($results) == 0) {
+            return LazyCollection::make();
+        }
+
+        $scoutKeyName = $model->getScoutKeyName();
+
+        $columns = Arr::get($results, '_payload.body._source');
+
+        if (is_null($columns)) {
+            $columns = ['*'];
+        } else {
+            $columns[] = $scoutKeyName;
+        }
+
+        $ids = $this->mapIds($results)->all();
+
+        $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
+
+        // Получение моделей частями с использованием LazyCollection
+        $models = $query->whereIn($scoutKeyName, $ids)->cursor()->keyBy($scoutKeyName);
+
+        return LazyCollection::make($results['hits']['hits'])
+            ->map(function ($hit) use ($models, $scoutKeyName) {
+                $id = $this->getModelIDFromHit($hit);
+
+                $model = $models->firstWhere($scoutKeyName, $id);
+                if ($model) {
+                    $model->_score = $hit['_score'];
+
+                    if (isset($hit['highlight'])) {
+                        $model->highlight = new Highlight($hit['highlight']);
+                    }
+
+                    return $model;
+                }
+            })
+            ->filter()
+            ->values();
+    }
+
+    public function createIndex($name, array $options = [])
+    {
+        // TODO: Implement createIndex() method.
+    }
+
+    public function deleteIndex($name)
+    {
+        // TODO: Implement deleteIndex() method.
+        $this->indexer->delete($name);
+    }
+
+    /**
+     * @param $model
+     * @param $results
+     * @return Collection
+     */
+    //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/218/commits/93fd1b2cbb582ca2d3544e078ef303a6de2e0622
+    public function hydrateModels($model, $results)
+    {
+        // Hydrate models from elastic index
+        if ($model->databaseHydrate === false) {
+            $hits = collect($results['hits']['hits']);
+            $className = get_class($model);
+            $models = new Collection();
+
+            $hits->each(function ($item, $key) use ($className, $model, $models) {
+                //$attributes = $item['_source'];
+                $attributes = Arr::get($item['_source'], $model->indexAttributesPrefix);
+                $models->put($item['_id'], new $className($attributes));
+            });
+        }
+        // Hydrate models from database
+        else {
+            $scoutKeyName = $model->getScoutKeyName();
+
+            $columns = Arr::get($results, '_payload.body._source');
+
+            if (is_null($columns)) {
+                $columns = ['*'];
+            } else {
+                $columns[] = $scoutKeyName;
+            }
+
+            $ids = $this->mapIds($results)->all();
+
+            $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
+
+            $models = $query
+                ->whereIn($scoutKeyName, $ids)
+                ->get($columns)
+                ->keyBy($scoutKeyName);
+        }
+
+        return $models;
     }
 }

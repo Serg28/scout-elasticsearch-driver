@@ -1,6 +1,6 @@
 <?php
 
-namespace ScoutElastic\Payloads\Features;
+namespace Novius\ScoutElastic\Payloads\Features;
 
 trait HasProtectedKeys
 {
