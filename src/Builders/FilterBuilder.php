@@ -261,9 +261,9 @@ class FilterBuilder extends Builder
      * @param string $boolean
      * @return $this
      */
-    public function whereIn($field, array $value, $boolean = 'must')
+    public function whereIn($field, $value)
     {
-        $this->wheres[$boolean][] = [
+        $this->wheres['must'][] = [
             'terms' => [
                 $field => $value,
             ],
@@ -292,7 +292,7 @@ class FilterBuilder extends Builder
      * @param string $boolean
      * @return $this
      */
-    public function whereNotIn($field, array $value, $boolean = 'must')
+    public function whereNotIn($field, $value)
     {
         $term = [
             'terms' => [
@@ -300,7 +300,7 @@ class FilterBuilder extends Builder
             ],
         ];
 
-        $this->setNegativeCondition($term, $boolean);
+        $this->setNegativeCondition($term, 'must');
 
         return $this;
     }
