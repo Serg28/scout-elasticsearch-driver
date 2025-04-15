@@ -125,6 +125,14 @@ Handles model property (boolean) $databaseHydrate to add option to disable datab
 При false будут возвращаться также и "виртуальные" атрибуты, как они определены в индексе и перечислены в $fillable
 При true из индекса возвращается реальная модель, как при обычном eloquent-запросе, без "виртуальных" атрибутов
 
+### Adds the ability to add data into the body of each request set in the Seachable model.
+https://github.com/babenkoivan/scout-elasticsearch-driver/pull/363
+
+Возможность добавлять к запросу параметры на уровне query в body
+```php
+protected $searchSettings = [ 'track_total_hits' => true, ];
+```
+
 ## Usage
 
 Please read the [original package documentation](https://github.com/babenkoivan/scout-elasticsearch-driver). 
