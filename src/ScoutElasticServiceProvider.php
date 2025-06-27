@@ -8,9 +8,10 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Scout\EngineManager;
-use Novius\ScoutElastic\Console\ElasticIndexCreateCommand;
+use Novius\ScoutElastic\Console\ElasticMigrateModelCommand;
 use Novius\ScoutElastic\Console\ElasticIndexDropCommand;
 use Novius\ScoutElastic\Console\ElasticIndexReindexCommand;
+use Novius\ScoutElastic\Console\ScoutImportCommand;
 use Novius\ScoutElastic\Console\IndexConfiguratorMakeCommand;
 use Novius\ScoutElastic\Console\SearchableModelMakeCommand;
 use Novius\ScoutElastic\Console\SearchRuleMakeCommand;
@@ -31,9 +32,11 @@ class ScoutElasticServiceProvider extends ServiceProvider
             SearchRuleMakeCommand::class,
 
             // elastic commands
-            ElasticIndexCreateCommand::class,
+            //ElasticIndexCreateCommand::class,
             ElasticIndexDropCommand::class,
             ElasticIndexReindexCommand::class,
+            ElasticMigrateModelCommand::class,
+            ScoutImportCommand::class,
         ]);
 
         $this

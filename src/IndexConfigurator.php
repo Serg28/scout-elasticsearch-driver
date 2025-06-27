@@ -53,4 +53,15 @@ abstract class IndexConfigurator
     {
         return $this->defaultMapping;
     }
+
+    /**
+     * Get the write alias.
+     *
+     * @return string
+     */
+    public function getWriteAlias()
+    {
+        return $this->getName().'_write';
+    }
+
 }

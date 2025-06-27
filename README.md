@@ -50,32 +50,54 @@ return [
 ];
 ```
 
-* `elastic:reindex` a new command to build and populate a new index with 0 downtime ;
+## Доступные artisan-команды
 
-***config/scout_elastic.php***
+- `elastic:reindex` — создание нового индекса и наполнение его данными с переключением алиаса (zero downtime reindex). Если индекс уже существует, будет создан новый с новым именем и переключён алиас.
+- `elastic:drop-index` — удаление индекса и его алиасов.
+
+## Конфигурация scout_elastic.php
+
+Файл `config/scout_elastic.php` содержит расширенные настройки для работы с Elasticsearch и очередями:
+
 ```php
-<?php
-
 return [
+    // Настройки подключения к Elasticsearch
     'client' => [
-        'hosts' => [
-            env('SCOUT_ELASTIC_HOST', 'localhost:9200'),
-        ],
+        'hosts' => [env('SCOUT_ELASTIC_HOST', 'localhost:9200')],
     ],
+    // Автоматическое обновление документа после изменений
     'document_refresh' => env('SCOUT_ELASTIC_DOCUMENT_REFRESH'),
-    'searchable_models' => [],
+    // Список моделей, которые индексируются через Scout Elastic
+    'searchable_models' => [
+        'App\\Models\\Product',
+        'App\\Models\\ModelRelate',
+        // ...
+    ],
+    // Включить логирование запросов к Elasticsearch
     'log_enabled' => env('SCOUT_ELASTIC_LOG_ENABLED', false),
-    'log_channels' => [],
+    // Каналы логирования для Elasticsearch
+    'log_channels' => ['es'],
+
+    // Название подключения к очереди (например, redis)
+    'queue_connection' => env('SCOUT_ELASTIC_QUEUE_CONNECTION', 'redis'),
+    // Имя очереди по-умолчанию для переиндексации
+    'queue_name' => env('SCOUT_ELASTIC_QUEUE_NAME', 'shop-reindexModels'),
+
+    // Индивидуальные очереди для конкретных моделей (опционально)
+    // Ключ — FQCN модели, значение — имя очереди для этой модели
+    'model_queues' => [
+        // Пример:
+        App\\Models\\Product::class => 'shop-reindexProducts',
+        App\\Models\\ModelRelate::class => 'shop-reindexModels',
+    ],
 ];
 ```
 
-## Features deleted from original package
+- `queue_connection` — название подключения к очереди (например, redis, database и т.д.)
+- `queue_name` — имя очереди по умолчанию для всех моделей
+- `model_queues` — массив индивидуальных очередей для конкретных моделей (ключ — FQCN модели, значение — имя очереди)
 
-* `elastic:update-mapping` command ;
-* `elastic:migrate` command ;
-* `elastic:update` command ;
-* Mapping of models : replaced by `getDefaultMapping()` of index configurator ;
-* Single indexer ;
+Это позволяет гибко управлять процессом индексации и отслеживать прогресс для каждой модели отдельно.
 
 ## Requirements
 

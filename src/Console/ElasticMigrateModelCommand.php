@@ -1,17 +1,40 @@
 <?php
 
-namespace ScoutElastic\Console;
+namespace Novius\ScoutElastic\Console;
 
 use Exception;
 use Illuminate\Console\Command;
-use ScoutElastic\Console\Features\RequiresModelArgument;
-use ScoutElastic\Facades\ElasticClient;
-use ScoutElastic\Migratable;
-use ScoutElastic\Payloads\IndexPayload;
-use ScoutElastic\Payloads\RawPayload;
+use Illuminate\Support\Facades\Queue;
+use Novius\ScoutElastic\Console\Features\RequiresModelArgument;
+use Novius\ScoutElastic\Facades\ElasticClient;
+use Novius\ScoutElastic\Payloads\IndexPayload;
+use Novius\ScoutElastic\Payloads\RawPayload;
+// use ScoutElastic\Migratable;
+// use ScoutElastic\Migratable;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
 
+/**
+ * Class ElasticMigrateModelCommand
+ *
+ * Консольная команда для миграции модели Elasticsearch на другой индекс.
+ * Эта команда позволяет создать новый индекс, скопировать в него данные,
+ * обновить маппинги и настройки, а затем переключить псевдоним на новый индекс.
+ *
+ * Класс для миграции индекса Elasticsearch для указанной модели.
+ *
+ * Позволяет:
+ *  - создать новый индекс с нужными настройками и маппингом;
+ *  - скопировать в него все данные через очередь;
+ *  - переключить псевдоним на новый индекс и удалить старый;
+ *  - поддерживает индивидуальные очереди для разных моделей (см. config/scout_elastic.php);
+ *  - отображает прогресс ожидания очереди с помощью прогрессбара.
+ *
+ * Использование:
+ *   php artisan elastic:migrate-model 'App\\Models\\Product' new_index_name
+ *
+ * @author ...
+ */
 class ElasticMigrateModelCommand extends Command
 {
     use RequiresModelArgument {
@@ -19,17 +42,60 @@ class ElasticMigrateModelCommand extends Command
     }
 
     /**
-     * {@inheritdoc}
+     * Имя консольной команды.
+     *
+     * @var string
      */
     protected $name = 'elastic:migrate-model';
 
     /**
-     * {@inheritdoc}
+     * Описание консольной команды.
+     *
+     * @var string
      */
     protected $description = 'Migrate model to another index';
 
     /**
-     * Get the command arguments.
+     * Имя очереди для операций переиндексации (определяется динамически).
+     *
+     * @var string
+     */
+    protected string $queueName;
+
+    /**
+     * Название подключения к очереди (redis, database и т.д.).
+     *
+     * @var string
+     */
+    protected string $queueConnection;
+
+    /**
+     * Получить имя очереди для текущей модели.
+     * Если для модели не задана отдельная очередь, возвращает общую.
+     *
+     * @return string
+     */
+    protected function resolveQueueName(): string
+    {
+        $model = $this->getModel();
+        $modelClass = is_object($model) ? get_class($model) : $model;
+        $modelQueues = config('scout_elastic.model_queues', []);
+
+        return $modelQueues[$modelClass] ?? config('scout_elastic.queue_name', 'shop-reindexModels');
+    }
+
+    /**
+     * Конструктор команды. Устанавливает подключение к очереди.
+     */
+    public function __construct()
+    {
+        parent::__construct();
+        $this->queueConnection = config('scout_elastic.queue_connection', 'redis');
+        // queueName теперь определяется динамически
+    }
+
+    /**
+     * Получить аргументы команды (модель и имя целевого индекса).
      *
      * @return array
      */
@@ -43,9 +109,11 @@ class ElasticMigrateModelCommand extends Command
     }
 
     /**
+     * Получить опции команды.
+     *
      * @return array
      */
-    //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
+    // https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
     protected function getOptions()
     {
         $options = parent::getOptions();
@@ -56,9 +124,17 @@ class ElasticMigrateModelCommand extends Command
     }
 
     /**
-     * @param string $name
+     * Переключает псевдоним на целевой индекс.
+     *
+     * Если псевдоним с указанным именем существует, он атомарно переключается
+     * со старого индекса на новый (целевой). Старый индекс затем удаляется.
+     * Если псевдоним не существует (т.е. имя модели указывает на реальный индекс),
+     * то исходный индекс удаляется, и для целевого индекса создается новый псевдоним.
+     *
+     * @param  string  $name  Имя псевдонима (обычно совпадает с именем индекса модели).
+     * @return void
      */
-    //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
+    // https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
     protected function switchAliasForTargetIndex($name)
     {
         $targetIndex = $this->argument('target-index');
@@ -67,17 +143,17 @@ class ElasticMigrateModelCommand extends Command
             ->getModel()
             ->getIndexConfigurator();
         $payload = (new IndexPayload($sourceIndexConfigurator))
-                ->get();
+            ->get();
 
-        // the model's index name is an alias, switch the alias from the current index to the target index
-        // otherwise, delete the index and create an alias to the target index
+        // Имя индекса модели - это псевдоним, переключаем псевдоним с текущего индекса на целевой
+        // в противном случае удаляем индекс и создаем псевдоним для целевого индекса
         if ($this->isAliasExists($sourceIndexConfigurator->getName())) {
             $aliases = $this->getAlias($sourceIndexConfigurator->getName());
 
             foreach ($aliases as $index => $alias) {
 
-                // switch the alias to the new index in a single atomic step
-                $payload = (new RawPayload())
+                // переключаем псевдоним на новый индекс за один атомарный шаг
+                $payload = (new RawPayload)
                     ->set('body.actions.0.remove.alias', $name)
                     ->set('body.actions.0.remove.index', $index)
                     ->set('body.actions.1.add.alias', $name)
@@ -88,14 +164,14 @@ class ElasticMigrateModelCommand extends Command
                     ->updateAliases($payload);
 
                 $this->info(sprintf(
-                    'The %s alias has been moved from %s to %s.',
+                    'Псевдоним %s был перемещен с %s на %s.',
                     $name,
                     $index,
                     $targetIndex
                 ));
 
-                // delete the old index
-                $payload = (new RawPayload())
+                // удаляем старый индекс
+                $payload = (new RawPayload)
                     ->set('index', $index)
                     ->get();
 
@@ -103,21 +179,21 @@ class ElasticMigrateModelCommand extends Command
                     ->delete($payload);
 
                 $this->info(sprintf(
-                    'The %s index was removed.',
+                    'Индекс %s был удален.',
                     $index
                 ));
             }
         } else {
-            // the model's index name is an actual index
+            // имя индекса модели - это фактический индекс
             $this->deleteSourceIndex();
             $this->createAliasForTargetIndex($name);
         }
     }
 
     /**
-     * Checks if the target index exists.
+     * Проверяет, существует ли целевой индекс.
      *
-     * @return bool
+     * @return bool True, если целевой индекс существует, иначе false.
      */
     protected function isTargetIndexExists()
     {
@@ -132,7 +208,8 @@ class ElasticMigrateModelCommand extends Command
     }
 
     /**
-     * Create a target index.
+     * Создает целевой индекс.
+     * Использует настройки из конфигуратора индекса исходной модели.
      *
      * @return void
      */
@@ -152,16 +229,18 @@ class ElasticMigrateModelCommand extends Command
             ->create($payload);
 
         $this->info(sprintf(
-            'The %s index was created.',
+            'Индекс %s был создан.',
             $targetIndex
         ));
     }
 
     /**
-     * Update the target index.
+     * Обновляет настройки целевого индекса.
+     * Индекс временно закрывается для применения настроек, а затем открывается.
      *
-     * @throws \Exception
      * @return void
+     *
+     * @throws \Exception Если при обновлении настроек возникает ошибка.
      */
     protected function updateTargetIndex()
     {
@@ -190,19 +269,21 @@ class ElasticMigrateModelCommand extends Command
 
             $indices->open($targetIndexPayload);
         } catch (Exception $exception) {
+            // Убедимся, что индекс открыт, даже если произошла ошибка
             $indices->open($targetIndexPayload);
 
             throw $exception;
         }
 
         $this->info(sprintf(
-            'The index %s was updated.',
+            'Индекс %s был обновлен.',
             $targetIndex
         ));
     }
 
     /**
-     * Update the target index mapping.
+     * Обновляет маппинг целевого индекса.
+     * Использует маппинг из исходной модели и конфигуратора индекса.
      *
      * @return void
      */
@@ -214,14 +295,11 @@ class ElasticMigrateModelCommand extends Command
         $targetIndex = $this->argument('target-index');
         $targetType = $sourceModel->searchableAs();
 
-        $mapping = array_merge_recursive(
-            $sourceIndexConfigurator->getDefaultMapping(),
-            $sourceModel->getMapping()
-        );
+        $mapping = $sourceIndexConfigurator->getDefaultMapping();
 
         if (empty($mapping)) {
             $this->warn(sprintf(
-                'The %s mapping is empty.',
+                'Маппинг для %s пуст.',
                 get_class($sourceModel)
             ));
 
@@ -239,16 +317,16 @@ class ElasticMigrateModelCommand extends Command
             ->putMapping($payload);
 
         $this->info(sprintf(
-            'The %s mapping was updated.',
+            'Маппинг для %s был обновлен.',
             $targetIndex
         ));
     }
 
     /**
-     * Check if an alias exists.
+     * Проверяет, существует ли псевдоним с указанным именем.
      *
-     * @param  string  $name
-     * @return bool
+     * @param  string  $name  Имя псевдонима.
+     * @return bool True, если псевдоним существует, иначе false.
      */
     protected function isAliasExists($name)
     {
@@ -261,10 +339,10 @@ class ElasticMigrateModelCommand extends Command
     }
 
     /**
-     * Get an alias.
+     * Получает информацию о псевдониме.
      *
-     * @param  string  $name
-     * @return array
+     * @param  string  $name  Имя псевдонима.
+     * @return array<string, mixed> Массив, где ключи - имена индексов, на которые указывает псевдоним.
      */
     protected function getAlias($name)
     {
@@ -277,9 +355,10 @@ class ElasticMigrateModelCommand extends Command
     }
 
     /**
-     * Delete an alias.
+     * Удаляет псевдоним.
+     * Если псевдоним указывает на несколько индексов, он будет удален для каждого из них.
      *
-     * @param  string  $name
+     * @param  string  $name  Имя псевдонима.
      * @return void
      */
     protected function deleteAlias($name)
@@ -300,7 +379,7 @@ class ElasticMigrateModelCommand extends Command
                 ->deleteAlias($deletePayload);
 
             $this->info(sprintf(
-                'The %s alias for the %s index was deleted.',
+                'Псевдоним %s для индекса %s был удален.',
                 $name,
                 $index
             ));
@@ -308,9 +387,10 @@ class ElasticMigrateModelCommand extends Command
     }
 
     /**
-     * Create an alias for the target index.
+     * Создает псевдоним для целевого индекса.
+     * Если псевдоним с таким именем уже существует, он сначала удаляется.
      *
-     * @param  string  $name
+     * @param  string  $name  Имя создаваемого псевдонима.
      * @return void
      */
     protected function createAliasForTargetIndex($name)
@@ -330,140 +410,214 @@ class ElasticMigrateModelCommand extends Command
             ->putAlias($payload);
 
         $this->info(sprintf(
-            'The %s alias for the %s index was created.',
+            'Псевдоним %s для индекса %s был создан.',
             $name,
             $targetIndex
         ));
     }
 
     /**
-     * Import the documents to the target index.
+     * Импортирует документы в целевой индекс через scout:import-with-index.
+     * Перед импортом подменяет параметры очереди в конфиге scout для текущей модели.
      *
      * @return void
      */
-    /*protected function importDocumentsToTargetIndex()
-    {
-        $sourceModel = $this->getModel();
-
-        $this->call(
-            'scout:import',
-            ['model' => get_class($sourceModel)]
-        );
-    }*/
-    //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
+    // https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
     protected function importDocumentsToTargetIndex()
     {
         $sourceModel = $this->getModel();
+        $targetIndex = $this->argument('target-index');
 
         if ($this->option('no-queue')) {
             config(['scout.queue' => false]);
+        } else {
+            config([
+                'scout.queue.queue' => $this->resolveQueueName(),
+                'scout.queue.connection' => $this->queueConnection,
+            ]);
         }
 
         $this->call(
-            'scout:import',
-            ['model' => get_class($sourceModel)]
+            'scout:import-with-index',
+            ['model' => get_class($sourceModel), '--index' => $targetIndex]
         );
     }
 
     /**
-     * Delete the source index.
+     * Удаляет исходный индекс.
+     * Удаление происходит только если имя индекса модели не является псевдонимом.
      *
      * @return void
      */
-    /*protected function deleteSourceIndex()
-    {
-        $sourceIndexConfigurator = $this
-            ->getModel()
-            ->getIndexConfigurator();
-
-        if ($this->isAliasExists($sourceIndexConfigurator->getName())) {
-            $aliases = $this->getAlias($sourceIndexConfigurator->getName());
-
-            foreach ($aliases as $index => $alias) {
-                $payload = (new RawPayload)
-                    ->set('index', $index)
-                    ->get();
-
-                ElasticClient::indices()
-                    ->delete($payload);
-
-                $this->info(sprintf(
-                    'The %s index was removed.',
-                    $index
-                ));
-            }
-        } else {
-            $payload = (new IndexPayload($sourceIndexConfigurator))
-                ->get();
-
-            ElasticClient::indices()
-                ->delete($payload);
-
-            $this->info(sprintf(
-                'The %s index was removed.',
-                $sourceIndexConfigurator->getName()
-            ));
-        }
-    }*/
-    //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
+    // https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
     protected function deleteSourceIndex()
     {
         $sourceIndexConfigurator = $this
             ->getModel()
             ->getIndexConfigurator();
 
-        // Delete the index only if the model index name is an actual index
-        if (!$this->isAliasExists($sourceIndexConfigurator->getName())) {
+        // Удаляем индекс, только если имя индекса - это фактический индекс
+        if (! $this->isAliasExists($sourceIndexConfigurator->getName())) {
             $payload = (new IndexPayload($sourceIndexConfigurator))
                 ->get();
 
-            ElasticClient::indices()
-                ->delete($payload);
+            // Проверяем, существует ли индекс
+            if (ElasticClient::indices()->exists($payload)) {
+                ElasticClient::indices()->delete($payload);
 
-            $this->info(sprintf(
-                'The %s index was removed.',
-                $sourceIndexConfigurator->getName()
-            ));
+                $this->info(sprintf(
+                    'Индекс %s был удален.',
+                    $sourceIndexConfigurator->getName()
+                ));
+            } else {
+                $this->warn(sprintf(
+                    'Индекс %s не существует, удаление не требуется.',
+                    $sourceIndexConfigurator->getName()
+                ));
+            }
         }
     }
 
     /**
-     * Handle the command.
-     *
-     * @return void
+     * Удаляет неиспользуемые индексы, связанные с моделью.
+     * Проверяет все индексы, начинающиеся с префикса модели,
+     * и удаляет те, которые не имеют псевдонимов.
      */
-    public function handle()
+    protected function deleteOrphanedModelIndices(): void
+    {
+        $model = $this->getModel();
+        $indexPrefix = $model->getIndexConfigurator()->getName(); // например, 'products'
+        $allIndices = ElasticClient::cat()->indices(['format' => 'json']);
+
+        $aliases = ElasticClient::indices()->getAlias([]); // все алиасы
+
+        foreach ($allIndices as $indexInfo) {
+            $indexName = $indexInfo['index'];
+            // Проверяем, что индекс относится к модели (например, products_*)
+            if (strpos($indexName, $indexPrefix) === 0) {
+                // Если у индекса нет алиасов — удаляем
+                if (! isset($aliases[$indexName]) || empty($aliases[$indexName]['aliases'])) {
+                    ElasticClient::indices()->delete(['index' => $indexName]);
+                    $this->info("Удалён неиспользуемый индекс: $indexName");
+                }
+            }
+        }
+    }
+
+    /**
+     * Выполняет команду миграции индекса.
+     *
+     * Последовательность действий:
+     * 1. Создает или обновляет целевой индекс.
+     * 2. Обновляет маппинг целевого индекса.
+     * 3. Создает псевдоним для записи (write alias) на целевой индекс.
+     * 4. Импортирует документы в целевой индекс (возможно, через очередь).
+     * 5. Ожидает завершения всех задач в очереди импорта.
+     * 6. Переключает основной псевдоним модели на новый (целевой) индекс.
+     *    При этом старый индекс, на который указывал псевдоним, удаляется.
+     *    Если исходное имя индекса модели не было псевдонимом, то исходный индекс удаляется
+     *    и создается новый псевдоним.
+     * 7. Удаляет неиспользуемые индексы, связанные с моделью.
+     *
+     * @throws Exception
+     */
+    public function handle(): void
     {
         $sourceModel = $this->getModel();
         $sourceIndexConfigurator = $sourceModel->getIndexConfigurator();
 
-        if (! in_array(Migratable::class, class_uses_recursive($sourceIndexConfigurator))) {
-            $this->error(sprintf(
-                'The %s index configurator must use the %s trait.',
-                get_class($sourceIndexConfigurator),
-                Migratable::class
-            ));
+        $this->newLine();
+        $this->info('==============================');
+        $this->info('  Миграция индекса для модели:');
+        $this->line('  <info>' . get_class($sourceModel) . '</info>');
+        $this->info('==============================');
+        $this->newLine();
 
-            return;
-        }
-
+        $this->section('1. Проверка и создание/обновление целевого индекса');
         $this->isTargetIndexExists() ? $this->updateTargetIndex() : $this->createTargetIndex();
 
+        $this->section('2. Обновление маппинга целевого индекса');
         $this->updateTargetIndexMapping();
 
+        $this->section('3. Создание write-алиаса для целевого индекса');
         $this->createAliasForTargetIndex($sourceIndexConfigurator->getWriteAlias());
 
+        $this->section('4. Импорт документов в новый индекс');
         $this->importDocumentsToTargetIndex();
 
-        //https://github.com/babenkoivan/scout-elasticsearch-driver/pull/139/files
-        //$this->deleteSourceIndex();
-        //$this->createAliasForTargetIndex($sourceIndexConfigurator->getName());
+        $this->section('5. Ожидание завершения очереди индексации');
+        $this->waitForQueueToEmpty();
+        $this->info('✅ Индексация завершена.');
+        $this->newLine();
+
+        $this->section('6. Переключение основного алиаса на новый индекс');
         $this->switchAliasForTargetIndex($sourceIndexConfigurator->getName());
 
+        $this->section('7. Удаление неиспользуемых индексов');
+        $this->deleteOrphanedModelIndices();
+
+        $this->newLine();
+        $this->info(str_repeat('=', 40));
         $this->info(sprintf(
-            'The %s model successfully migrated to the %s index.',
+            'Модель <info>%s</info> успешно мигрирована на индекс <info>%s</info>.',
             get_class($sourceModel),
             $this->argument('target-index')
         ));
+        $this->info(str_repeat('=', 40));
+        $this->newLine();
+    }
+
+    /**
+     * Визуально выделяет этап процесса.
+     *
+     * @param string $title
+     * @return void
+     */
+    protected function section(string $title): void
+    {
+        $this->newLine();
+        $this->info(str_repeat('-', 40));
+        $this->info($title);
+        $this->info(str_repeat('-', 40));
+        $this->newLine();
+    }
+
+    /**
+     * Ожидает, пока очередь для текущей модели не опустеет.
+     * Показывает прогрессбар.
+     *
+     * @return void
+     */
+    protected function waitForQueueToEmpty(): void
+    {
+        $queueName = $this->resolveQueueName();
+        $connection = $this->queueConnection;
+        $this->info("Ожидание завершения задач в очереди: $queueName");
+        $count = Queue::connection($connection)->size($queueName);
+        if ($count === 0) {
+            $this->info('Очередь пуста.');
+
+            return;
+        }
+        $bar = $this->output->createProgressBar($count);
+        $bar->setFormat('progress: [%bar%] %current%/%max% (%percent:3s%%)');
+        $bar->start();
+        $lastCount = $count;
+        do {
+            $count = Queue::connection($connection)->size($queueName);
+            if ($count > $lastCount) {
+                $bar->setMaxSteps($count);
+            }
+            if ($count < $lastCount) {
+                $bar->advance($lastCount - $count);
+                $lastCount = $count;
+            }
+            if ($count > 0) {
+                sleep(3);
+            }
+        } while ($count > 0);
+        $bar->finish();
+        $this->line('');
+        $this->info('Очередь пуста.');
     }
 }

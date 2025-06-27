@@ -89,11 +89,11 @@ class FilterBuilder extends Builder
             ];
         }
 
-        $this->wheres['must'][] = [
+        /*$this->wheres['must'][] = [
             'term' => [
                 'type' => $model->searchableAs(),
             ],
-        ];
+        ];*/
     }
 
     /**
