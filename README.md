@@ -101,16 +101,14 @@ return [
 
 ## Requirements
 
-* PHP >= 7.4
-* Laravel Framework >= 7.25
+* PHP >= 8.1
+* Laravel Framework >= 10
 * Elasticsearch >= 7.0.0
-
-*For Laravel > 6 and < 7.25 you can install 2.x version.*
 
 ## Installation
 
 ```sh
-composer require novius/laravel-scout-elasticsearch-driver:dev-master
+composer require novius/laravel-scout-elasticsearch-driver:dev-laravel10-12
 ```
 
 ## Configuration
