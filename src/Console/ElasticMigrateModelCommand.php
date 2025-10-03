@@ -287,7 +287,7 @@ class ElasticMigrateModelCommand extends Command
      *
      * @return void
      */
-    protected function updateTargetIndexMapping()
+    /*protected function updateTargetIndexMapping()
     {
         $sourceModel = $this->getModel();
         $sourceIndexConfigurator = $sourceModel->getIndexConfigurator();
@@ -320,6 +320,49 @@ class ElasticMigrateModelCommand extends Command
             'Маппинг для %s был обновлен.',
             $targetIndex
         ));
+    }*/
+    protected function updateTargetIndexMapping(): void
+    {
+        // Получаем имя индекса и конфигуратор
+        $sourceModel = $this->getModel();
+        $indexConfigurator = $sourceModel->getIndexConfigurator();
+
+        $mapping = $indexConfigurator->getDefaultMapping();
+        $targetIndex = $this->argument('target-index');
+        $targetType = $sourceModel->searchableAs();
+
+        if (empty($mapping)) {
+            $this->warn(sprintf(
+                'Маппинг для %s пуст.',
+                get_class($sourceModel)
+            ));
+
+            return;
+        }
+
+        $payload = (new RawPayload)->set('index', $targetIndex);
+
+        if (version_compare($this->elasticsearchVersion(), '7.0.0', '<')) {
+            // ES < 7.x
+            $payload
+                ->set('include_type_name', true)
+                ->set('body', $mapping);
+        } else {
+            // ES >= 7.x (включая 8.x)
+            $payload->set('body', $mapping);
+        }
+
+        ElasticClient::indices()->putMapping($payload->get());
+    }
+
+    protected function elasticsearchVersion(): string
+    {
+        try {
+            $info = ElasticClient::info();
+            return $info['version']['number'] ?? '8.0.0';
+        } catch (\Throwable $e) {
+            return '8.0.0';
+        }
     }
 
     /**
