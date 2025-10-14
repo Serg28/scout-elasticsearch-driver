@@ -158,4 +158,28 @@ trait Searchable
     {
         return $this->searchableAs().'_'.$this->getKey();
     }
+
+    /**
+     * Get the name of the index associated with the model.
+     *
+     * @throws \Exception
+     */
+    public function searchableAs(): string
+    {
+        if (app()->bound('elasticIndexCreated')) {
+            return app('elasticIndexCreated');  // Используем новый индекс
+        }
+
+        return $this->getIndexConfigurator()->getName();  // Возвращаем текущее имя алиаса
+    }
+
+    /*
+     * Get the type of the index associated with the model.
+     *
+     * @return string
+     */
+    public function getSearchType(): string
+    {
+        return $this->getIndexConfigurator()->getType() ?: $this->searchableAs();
+    }
 }

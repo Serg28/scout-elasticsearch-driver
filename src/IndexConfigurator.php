@@ -14,6 +14,13 @@ abstract class IndexConfigurator
     protected $name;
 
     /**
+     * The index type
+     *
+     * @var string
+     */
+    protected ?string $type = null;
+
+    /**
      * The settings.
      *
      * @var array
@@ -62,6 +69,11 @@ abstract class IndexConfigurator
     public function getWriteAlias()
     {
         return $this->getName().'_write';
+    }
+
+    public function getType()
+    {
+        return $this->type;
     }
 
 }

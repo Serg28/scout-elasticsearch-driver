@@ -329,7 +329,7 @@ class ElasticMigrateModelCommand extends Command
 
         $mapping = $indexConfigurator->getDefaultMapping();
         $targetIndex = $this->argument('target-index');
-        $targetType = $sourceModel->searchableAs();
+        $targetType = $sourceModel->getSearchType();
 
         if (empty($mapping)) {
             $this->warn(sprintf(
@@ -340,7 +340,7 @@ class ElasticMigrateModelCommand extends Command
             return;
         }
 
-        $payload = (new RawPayload)->set('index', $targetIndex);
+        $payload = (new RawPayload)->set('index', $targetIndex)->set('type', $targetType);
 
         if (version_compare($this->elasticsearchVersion(), '7.0.0', '<')) {
             // ES < 7.x
@@ -349,7 +349,9 @@ class ElasticMigrateModelCommand extends Command
                 ->set('body', $mapping);
         } else {
             // ES >= 7.x (включая 8.x)
-            $payload->set('body', $mapping);
+
+            $payload->set('body', $mapping)
+                ->set('include_type_name', true);
         }
 
         ElasticClient::indices()->putMapping($payload->get());
