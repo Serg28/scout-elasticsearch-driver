@@ -340,7 +340,7 @@ class ElasticMigrateModelCommand extends Command
             return;
         }
 
-        $payload = (new RawPayload)->set('index', $targetIndex)->set('type', $targetType);
+        $payload = (new RawPayload)->set('index', $targetIndex);
 
         if (version_compare($this->elasticsearchVersion(), '7.0.0', '<')) {
             // ES < 7.x
@@ -349,9 +349,7 @@ class ElasticMigrateModelCommand extends Command
                 ->set('body', $mapping);
         } else {
             // ES >= 7.x (включая 8.x)
-
-            $payload->set('body', $mapping)
-                ->set('include_type_name', true);
+            $payload->set('body', $mapping);
         }
 
         ElasticClient::indices()->putMapping($payload->get());

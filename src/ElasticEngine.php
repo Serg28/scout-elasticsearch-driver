@@ -264,6 +264,11 @@ class ElasticEngine extends Engine
         return last(explode('_', $hit['_id']));
     }
 
+    protected function getTypeNameFromId($id)
+    {
+        return \Str::beforeLast($id, '_');
+    }
+
     public function lazyMap(Builder $builder, $results, $model)
     {
         if ($this->getTotalCount($results) == 0) {
@@ -343,7 +348,8 @@ class ElasticEngine extends Engine
 
         $hits->each(function ($item) use ($models, $builder) {
             $source = $item['_source'] ?? [];
-            $type = $item['_type'] ?? $item['_index'];
+            // $type = $source['type'] ?? $item['_type'] ?? $item['_index'];
+            $type = $this->getTypeNameFromId($item['_id']) ?? $item['_index'];
 
             $modelClass = config("scout_elastic.type_mapping.{$type}");
             if ($modelClass === null || !class_exists($modelClass)) {
