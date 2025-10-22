@@ -114,39 +114,6 @@ class ElasticEngine extends Engine
         });
     }
 
-    /*
-    protected function performSearch(Builder $builder, array $options = [])
-    {
-        if ($builder->callback) {
-            return call_user_func(
-                $builder->callback,
-                ElasticClient::getFacadeRoot(),
-                $builder->query,
-                $options
-            );
-        }
-
-        $results = [];
-
-        $this
-            ->buildSearchQueryPayloadCollection($builder, $options)
-            ->each(function ($payload) use (&$results) {
-                if (config('scout_elastic.log_enabled', false)) {
-                    \Illuminate\Support\Facades\Log::channel(config('scout_elastic.log_channels')[0])
-                        ->debug('Elasticsearch query', $payload);
-                }
-
-                $results = ElasticClient::search($payload);
-                $results['_payload'] = $payload;
-
-                if ($this->getTotalCount($results) > 0) {
-                    return false;
-                }
-            });
-
-        return $results;
-    }*/
-
     protected function performSearch(Builder $builder, array $options = [])
     {
         if ($builder->callback) {
@@ -163,13 +130,17 @@ class ElasticEngine extends Engine
             'aggregations' => [],
         ];
 
+        // Кэшируем проверку логирования
+        $logEnabled = config('scout_elastic.log_enabled', false);
+        $logChannel = $logEnabled ? config('scout_elastic.log_channels')[0] : null;
+
         $this->buildSearchQueryPayloadCollection($builder, $options)
-            ->each(function ($payload) use (&$results) {
+            ->each(function ($payload) use (&$results, $logEnabled, $logChannel) {
                 $index = $payload['index'] ?? null;
                 $body = $payload['body'] ?? [];
 
-                if (config('scout_elastic.log_enabled', false)) {
-                    \Illuminate\Support\Facades\Log::channel(config('scout_elastic.log_channels')[0])
+                if ($logEnabled) {
+                    \Illuminate\Support\Facades\Log::channel($logChannel)
                         ->debug('Elasticsearch query', ['index' => $index, 'body' => $body]);
                 }
 
@@ -188,18 +159,25 @@ class ElasticEngine extends Engine
                     // Суммируем total
                     $results['hits']['total']['value'] += $searchResult['hits']['total']['value'] ?? 0;
 
-                    // Объединяем агрегации
+                    // Объединяем агрегации (корректно обрабатываем числовые значения)
                     if (isset($searchResult['aggregations'])) {
-                        $results['aggregations'] = array_merge_recursive(
-                            $results['aggregations'],
-                            $searchResult['aggregations']
-                        );
+                        foreach ($searchResult['aggregations'] as $key => $value) {
+                            if (!isset($results['aggregations'][$key])) {
+                                $results['aggregations'][$key] = $value;
+                            } else {
+                                // Рекурсивное объединение для вложенных структур
+                                $results['aggregations'][$key] = $this->mergeAggregations(
+                                    $results['aggregations'][$key],
+                                    $value
+                                );
+                            }
+                        }
                     }
 
                     $results['_payload'] = $payload;
                 } catch (\Exception $e) {
-                    if (config('scout_elastic.log_enabled', false)) {
-                        \Log::channel(config('scout_elastic.log_channels')[0])->error('Elasticsearch search error', [
+                    if ($logEnabled) {
+                        \Illuminate\Support\Facades\Log::channel($logChannel)->error('Elasticsearch search error', [
                             'index' => $index,
                             'body' => $body,
                             'error' => $e->getMessage(),
@@ -209,8 +187,30 @@ class ElasticEngine extends Engine
                 }
             });
 
-        // \Log::debug('Combined search results', ['results' => $results]);
         return $results;
+    }
+
+    /**
+     * Корректное объединение агрегаций
+     */
+    protected function mergeAggregations($existing, $new)
+    {
+        if (is_numeric($existing) && is_numeric($new)) {
+            return $existing + $new;
+        }
+
+        if (is_array($existing) && is_array($new)) {
+            foreach ($new as $key => $value) {
+                if (isset($existing[$key])) {
+                    $existing[$key] = $this->mergeAggregations($existing[$key], $value);
+                } else {
+                    $existing[$key] = $value;
+                }
+            }
+            return $existing;
+        }
+
+        return $new;
     }
 
     public function rawSearch(Builder $builder, array $options = [])
@@ -261,11 +261,7 @@ class ElasticEngine extends Engine
             ->buildSearchQueryPayloadCollection($builder, ['highlight' => false])
             ->each(function ($payload) use (&$count) {
                 $result = ElasticClient::count($payload);
-                $count = $result['count'] ?? 0;
-
-                if ($count > 0) {
-                    return false;
-                }
+                $count += $result['count'] ?? 0;
             });
 
         return $count;
@@ -350,7 +346,7 @@ class ElasticEngine extends Engine
         if ($builder instanceof MixedSearch) {
             $models = $this->hydrateMixedModels($builder, $results);
         } else {
-            $models = $this->hydrateModels($model, $results);
+            $models = $this->hydrateModels($builder, $model, $results);
         }
 
         return LazyCollection::make($results['hits']['hits'])
@@ -383,7 +379,6 @@ class ElasticEngine extends Engine
         $this->indexer->delete($name);
     }
 
-
     public function hydrateModels(Builder $builder, $model, $results)
     {
         // Проверяем, что модель не null (может быть при использовании MixedSearch расширений)
@@ -398,9 +393,10 @@ class ElasticEngine extends Engine
             $hits = collect($results['hits']['hits']);
             $className = get_class($model);
             $models = new Collection();
+            $indexAttributesPrefix = $model->indexAttributesPrefix;
 
-            $hits->each(function ($item, $key) use ($className, $model, $models) {
-                $attributes = Arr::get($item['_source'], $model->indexAttributesPrefix);
+            $hits->each(function ($item) use ($className, $indexAttributesPrefix, $models) {
+                $attributes = Arr::get($item['_source'], $indexAttributesPrefix);
                 $item['_id'] = $this->getModelIDFromHit($item);
                 $models->put($item['_id'], new $className($attributes));
             });
@@ -428,6 +424,10 @@ class ElasticEngine extends Engine
         $hits = collect($results['hits']['hits']);
         $models = new Collection();
 
+        // Кэшируем проверку логирования
+        $logEnabled = config('scout_elastic.log_enabled', false);
+        $logChannel = $logEnabled ? config('scout_elastic.log_channels')[0] : null;
+
         // Группируем хиты по типу модели
         $hitsByType = $hits->groupBy(function ($item) {
             return $this->getTypeNameFromId($item['_id']) ?? $item['_index'];
@@ -437,8 +437,8 @@ class ElasticEngine extends Engine
         foreach ($hitsByType as $type => $typeHits) {
             $modelClass = config("scout_elastic.type_mapping.{$type}");
             if ($modelClass === null || !class_exists($modelClass)) {
-                if (config('scout_elastic.log_enabled', false)) {
-                    \Illuminate\Support\Facades\Log::channel(config('scout_elastic.log_channels')[0])
+                if ($logEnabled) {
+                    \Illuminate\Support\Facades\Log::channel($logChannel)
                         ->warning("Model class not found for type: {$type}");
                 }
                 continue;
@@ -447,6 +447,7 @@ class ElasticEngine extends Engine
             /** @var Model $instance */
             $instance = new $modelClass();
             $scoutKeyName = $instance->getScoutKeyName();
+            $indexAttributesPrefix = $instance->indexAttributesPrefix;
 
             // Получаем выбранные поля для этого индекса из builder->select
             $selectedFields = $builder instanceof MixedSearch && isset($builder->select[$type])
@@ -462,16 +463,14 @@ class ElasticEngine extends Engine
 
             if ($useSource) {
                 // Используем _source напрямую
-                $typeHits->each(function ($item) use ($models, $modelClass, $selectedFields, $isSelectAll, $scoutKeyName, $instance) {
+                $typeHits->each(function ($item) use ($models, $modelClass, $selectedFields, $isSelectAll, $scoutKeyName, $indexAttributesPrefix) {
                     $source = $item['_source'] ?? [];
-                    $attributes = Arr::get($item['_source'], $instance->indexAttributesPrefix, $item['_source']);
+                    $attributes = Arr::get($source, $indexAttributesPrefix, $source);
                     $mappedAttributes = [];
 
                     if ($isSelectAll) {
                         // Если select пуст или ['*'], возвращаем все поля из _source
-                        foreach ($attributes as $key => $value) {
-                            $mappedAttributes[$key] = $value;
-                        }
+                        $mappedAttributes = $attributes;
                     } elseif ($selectedFields) {
                         // Применяем только выбранные поля с алиасами
                         foreach ($selectedFields as $field => $alias) {
@@ -513,22 +512,25 @@ class ElasticEngine extends Engine
                     $modelColumns[$scoutKeyName] = $scoutKeyName;
                 }
 
+                // Собираем все значения scoutKeyName
+                $scoutKeyValues = $typeHits->pluck('_source.' . $scoutKeyName)->filter()->values()->all();
+
+                if (empty($scoutKeyValues)) {
+                    if ($logEnabled) {
+                        \Illuminate\Support\Facades\Log::channel($logChannel)
+                            ->warning("No valid scoutKey values for model", [
+                                'model' => $modelClass,
+                                'scoutKeyName' => $scoutKeyName,
+                            ]);
+                    }
+                    continue;
+                }
+
                 // Для databaseHydrate = true загружаем все записи одним запросом
                 $queryColumns = $modelColumns === ['*'] ? ['*'] : array_keys($modelColumns);
                 $query = $instance->newQuery();
                 if ($modelClass::usesSoftDelete()) {
                     $query = $query->withTrashed();
-                }
-
-                // Собираем все значения scoutKeyName
-                $scoutKeyValues = $typeHits->pluck('_source.' . $scoutKeyName)->filter()->values()->all();
-                if (empty($scoutKeyValues) && config('scout_elastic.log_enabled', false)) {
-                    \Illuminate\Support\Facades\Log::channel(config('scout_elastic.log_channels')[0])
-                        ->warning("No valid scoutKey values for model", [
-                        'model' => $modelClass,
-                        'scoutKeyName' => $scoutKeyName,
-                    ]);
-                    continue;
                 }
 
                 // Выполняем один запрос с WHERE IN
@@ -538,8 +540,8 @@ class ElasticEngine extends Engine
                     ->keyBy($scoutKeyName);
 
                 // Отладка: логируем запрос и найденные модели
-                if (config('scout_elastic.log_enabled', false)) {
-                    \Illuminate\Support\Facades\Log::channel(config('scout_elastic.log_channels')[0])
+                if ($logEnabled) {
+                    \Illuminate\Support\Facades\Log::channel($logChannel)
                         ->debug('Hydrating models', [
                             'model' => $modelClass,
                             'scoutKeyName' => $scoutKeyName,
@@ -550,7 +552,7 @@ class ElasticEngine extends Engine
                 }
 
                 // Обрабатываем каждый хит
-                $typeHits->each(function ($item) use ($models, $modelClass, $foundModels, $scoutKeyName, $selectedFields, $isSelectAll) {
+                $typeHits->each(function ($item) use ($models, $modelClass, $foundModels, $scoutKeyName, $selectedFields, $isSelectAll, $logEnabled, $logChannel) {
                     $source = $item['_source'] ?? [];
                     $scoutKeyValue = $source[$scoutKeyName] ?? null;
 
@@ -558,20 +560,20 @@ class ElasticEngine extends Engine
                         ? $foundModels[$scoutKeyValue]
                         : new $modelClass();
 
-                    if (!$model->exists && config('scout_elastic.log_enabled', false)) {
-                        \Illuminate\Support\Facades\Log::channel(config('scout_elastic.log_channels')[0])
-                        ->warning("Model not found in database", [
-                            'model' => $modelClass,
-                            'scoutKeyName' => $scoutKeyName,
-                            'scoutKeyValue' => $scoutKeyValue,
-                        ]);
+                    if (!$model->exists && $logEnabled) {
+                        \Illuminate\Support\Facades\Log::channel($logChannel)
+                            ->warning("Model not found in database", [
+                                'model' => $modelClass,
+                                'scoutKeyName' => $scoutKeyName,
+                                'scoutKeyValue' => $scoutKeyValue,
+                            ]);
                     }
 
                     $attributes = $model->getAttributes();
 
                     // Отладка: логируем атрибуты
-                    if (config('scout_elastic.log_enabled', false)) {
-                        \Illuminate\Support\Facades\Log::channel(config('scout_elastic.log_channels')[0])
+                    if ($logEnabled) {
+                        \Illuminate\Support\Facades\Log::channel($logChannel)
                             ->debug('Model attributes', [
                                 'model' => $modelClass,
                                 'attributes' => $attributes,
