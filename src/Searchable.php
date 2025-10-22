@@ -154,9 +154,15 @@ trait Searchable
         return $this->getKeyName();
     }
 
+    public function getScoutKeyValue()
+    {
+        return $this->{$this->getScoutKeyName()} ?? $this->getKey();
+    }
+
     public function getScoutKey()
     {
-        return $this->searchableAs().'_'.$this->getKey();
+        // return $this->searchableAs().'_'.$this->getKey();
+        return $this->searchableAs().'_'.$this->getScoutKeyValue();
     }
 
     /**

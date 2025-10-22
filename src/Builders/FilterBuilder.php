@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class FilterBuilder extends Builder
 {
+    use MixedSearchExtensions;
     /**
      * The rules array.
      *
@@ -68,6 +69,14 @@ class FilterBuilder extends Builder
     public $aggregations = [];
 
     public $minimumShouldMatch;
+
+    /**
+     * Flag for forcibly disabling hydration
+     *
+     * @var bool
+     */
+    protected $toBase = false;
+
     /**
      * FilterBuilder constructor.
      *
@@ -94,6 +103,25 @@ class FilterBuilder extends Builder
                 'type' => $model->searchableAs(),
             ],
         ];*/
+    }
+
+    /**
+     * Force the query to return raw results without hydrating models.
+     * @return $this
+     */
+    public function toBase()
+    {
+        $this->toBase = true;
+        return $this;
+    }
+
+    /**
+     * Check if the query is forcing the query to return raw results without hydrating models.
+     * @return bool
+     */
+    public function isToBase(): bool
+    {
+        return $this->toBase;
     }
 
     /**

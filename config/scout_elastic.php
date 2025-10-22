@@ -33,4 +33,9 @@ return [
         App\Models\Product::class => 'shop-reindexProducts', // Очередь только для Product
         App\Models\ModelRelate::class => 'shop-reindexModels', // Очередь только для ModelRelate
     ],
+
+    // Маппинг названий индексов Elasticsearch к моделям (для MixedSearch)
+    'type_mapping' => [
+        // 'siteprefix_products' => \App\Models\Product::class,
+    ],
 ];
