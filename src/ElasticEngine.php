@@ -1,86 +1,115 @@
 <?php
-
+// упрощенный
 namespace Novius\ScoutElastic;
 
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
+use Illuminate\Support\Str;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Novius\ScoutElastic\Builders\SearchBuilder;
 use Novius\ScoutElastic\Builders\MixedSearch;
 use Novius\ScoutElastic\Facades\ElasticClient;
-use Novius\ScoutElastic\Indexers\BulkIndexer;
 use Novius\ScoutElastic\Indexers\IndexerInterface;
 use Novius\ScoutElastic\Payloads\TypePayload;
 use stdClass;
+use Illuminate\Support\Facades\Log;
 
+/**
+ * Класс-движок для интеграции Laravel Scout с Elasticsearch.
+ */
 class ElasticEngine extends Engine
 {
+    /**
+     * @var IndexerInterface
+     */
     protected $indexer;
 
-    public function __construct(/*BulkIndexer*/IndexerInterface $indexer)
+    /**
+     * ElasticEngine constructor.
+     *
+     * @param IndexerInterface $indexer Индексер (BulkIndexer или любой, реализующий интерфейс)
+     */
+    public function __construct(IndexerInterface $indexer)
     {
         $this->indexer = $indexer;
     }
 
+    /**
+     * Обновление/индексация моделей.
+     *
+     * @param mixed $models
+     * @return void
+     */
     public function update($models)
     {
         $this->indexer->update($models);
     }
 
+    /**
+     * Удаление моделей из индекса.
+     *
+     * @param mixed $models
+     * @return void
+     */
     public function delete($models)
     {
         $this->indexer->delete($models);
     }
 
+    /**
+     * Построение коллекции payload'ов для поиска.
+     *
+     * Возвращает коллекцию массивов payload или payload'ов как есть (для MixedSearch).
+     *
+     * @param Builder $builder
+     * @param array $options
+     * @return \Illuminate\Support\Collection
+     */
     public function buildSearchQueryPayloadCollection(Builder $builder, array $options = [])
     {
-        $payloadCollection = collect();
+        $payloads = collect();
 
         if ($builder instanceof MixedSearch) {
-            $payload = [
+            $payloads->push([
                 'index' => implode(',', $builder->indices),
-                'body' => $builder->buildPayload(),
-            ];
-            $payloadCollection->push($payload);
-        } elseif ($builder instanceof SearchBuilder) {
-            $searchRules = $builder->rules ?: $builder->model->getSearchRules();
+                'body'  => $builder->buildPayload(),
+            ]);
 
+            return $payloads;
+        }
+
+        if ($builder instanceof SearchBuilder) {
+            $searchRules = $builder->rules ?: $builder->model->getSearchRules();
             foreach ($searchRules as $rule) {
                 $payload = new TypePayload($builder->model);
 
                 if (is_callable($rule)) {
                     $payload->setIfNotEmpty('body.query.bool', call_user_func($rule, $builder));
                 } else {
-                    /** @var SearchRule $ruleEntity */
                     $ruleEntity = new $rule($builder);
-
-                    if ($ruleEntity->isApplicable()) {
-                        $payload->setIfNotEmpty('body.query.bool', $ruleEntity->buildQueryPayload());
-                        if ($options['highlight'] ?? true) {
-                            $payload->setIfNotEmpty('body.highlight', $ruleEntity->buildHighlightPayload());
-                        }
-                    } else {
+                    if (! $ruleEntity->isApplicable()) {
                         continue;
+                    }
+                    $payload->setIfNotEmpty('body.query.bool', $ruleEntity->buildQueryPayload());
+                    if ($options['highlight'] ?? true) {
+                        $payload->setIfNotEmpty('body.highlight', $ruleEntity->buildHighlightPayload());
                     }
                 }
 
-                $payloadCollection->push($payload);
+                $payloads->push($payload);
             }
         } else {
-            $payload = (new TypePayload($builder->model))
-                ->setIfNotEmpty('body.query.bool.must.match_all', new stdClass());
-
-            $payloadCollection->push($payload);
+            // fallback — match_all
+            $payloads->push(
+                (new TypePayload($builder->model))
+                    ->setIfNotEmpty('body.query.bool.must.match_all', new stdClass())
+            );
         }
 
-        return $payloadCollection->map(function ($payload) use ($builder, $options) {
-            if ($builder instanceof MixedSearch) {
-                return $payload;
-            }
-
+        return $payloads->map(function ($payload) use ($builder, $options) {
             if ($payload instanceof TypePayload) {
                 $payload
                     ->setIfNotEmpty('body._source', $builder->select)
@@ -93,18 +122,17 @@ class ElasticEngine extends Engine
                     ->setIfNotNull('body.size', $builder->limit)
                     ->setIfNotEmpty('body.query.bool.filter.bool.minimum_should_match', $builder->minimumShouldMatch);
 
+                // where-clauses
                 foreach ($builder->wheres as $clause => $filters) {
                     $clauseKey = 'body.query.bool.filter.bool.' . $clause;
-                    $clauseValue = array_merge(
-                        $payload->get($clauseKey, []),
-                        $filters
-                    );
+                    $clauseValue = array_merge($payload->get($clauseKey, []), $filters);
                     $payload->setIfNotEmpty($clauseKey, $clauseValue);
                 }
 
+                // model search settings
                 $settings = $builder->model->getSearchSettings();
                 foreach ($settings as $setting => $value) {
-                    $payload->setIfNotEmpty('body.' . $setting, $value);
+                    $payload->setIfNotEmpty("body.{$setting}", $value);
                 }
 
                 return $payload->get();
@@ -114,15 +142,18 @@ class ElasticEngine extends Engine
         });
     }
 
+    /**
+     * Выполнение поиска — объединяет результаты нескольких payload'ов.
+     *
+     * @param Builder $builder
+     * @param array $options
+     * @return array
+     * @throws \Exception
+     */
     protected function performSearch(Builder $builder, array $options = [])
     {
         if ($builder->callback) {
-            return call_user_func(
-                $builder->callback,
-                ElasticClient::getFacadeRoot(),
-                $builder->query,
-                $options
-            );
+            return call_user_func($builder->callback, ElasticClient::getFacadeRoot(), $builder->query, $options);
         }
 
         $results = [
@@ -130,7 +161,6 @@ class ElasticEngine extends Engine
             'aggregations' => [],
         ];
 
-        // Кэшируем проверку логирования
         $logEnabled = config('scout_elastic.log_enabled', false);
         $logChannel = $logEnabled ? config('scout_elastic.log_channels')[0] : null;
 
@@ -140,36 +170,28 @@ class ElasticEngine extends Engine
                 $body = $payload['body'] ?? [];
 
                 if ($logEnabled) {
-                    \Illuminate\Support\Facades\Log::channel($logChannel)
-                        ->debug('Elasticsearch query', ['index' => $index, 'body' => $body]);
+                    Log::channel($logChannel)->debug('Elasticsearch query', ['index' => $index, 'body' => $body]);
                 }
 
                 try {
                     $searchResult = ElasticClient::search([
                         'index' => $index,
-                        'body' => $body,
+                        'body'  => $body,
                     ]);
 
-                    // Объединяем хиты
-                    $results['hits']['hits'] = array_merge(
-                        $results['hits']['hits'],
-                        $searchResult['hits']['hits'] ?? []
-                    );
+                    // объединяем hits
+                    $results['hits']['hits'] = array_merge($results['hits']['hits'], $searchResult['hits']['hits'] ?? []);
 
-                    // Суммируем total
+                    // суммируем total
                     $results['hits']['total']['value'] += $searchResult['hits']['total']['value'] ?? 0;
 
-                    // Объединяем агрегации (корректно обрабатываем числовые значения)
+                    // объединяем агрегации (рекурсивно)
                     if (isset($searchResult['aggregations'])) {
                         foreach ($searchResult['aggregations'] as $key => $value) {
                             if (!isset($results['aggregations'][$key])) {
                                 $results['aggregations'][$key] = $value;
                             } else {
-                                // Рекурсивное объединение для вложенных структур
-                                $results['aggregations'][$key] = $this->mergeAggregations(
-                                    $results['aggregations'][$key],
-                                    $value
-                                );
+                                $results['aggregations'][$key] = $this->mergeAggregations($results['aggregations'][$key], $value);
                             }
                         }
                     }
@@ -177,9 +199,9 @@ class ElasticEngine extends Engine
                     $results['_payload'] = $payload;
                 } catch (\Exception $e) {
                     if ($logEnabled) {
-                        \Illuminate\Support\Facades\Log::channel($logChannel)->error('Elasticsearch search error', [
+                        Log::channel($logChannel)->error('Elasticsearch search error', [
                             'index' => $index,
-                            'body' => $body,
+                            'body'  => $body,
                             'error' => $e->getMessage(),
                         ]);
                     }
@@ -191,7 +213,11 @@ class ElasticEngine extends Engine
     }
 
     /**
-     * Корректное объединение агрегаций
+     * Рекурсивное корректное объединение агрегаций.
+     *
+     * @param mixed $existing
+     * @param mixed $new
+     * @return mixed
      */
     protected function mergeAggregations($existing, $new)
     {
@@ -213,52 +239,85 @@ class ElasticEngine extends Engine
         return $new;
     }
 
+    /**
+     * Выполняет сырой поиск и возвращает результат.
+     *
+     * @param Builder $builder
+     * @param array $options
+     * @return array
+     */
     public function rawSearch(Builder $builder, array $options = [])
     {
         return $this->performSearch($builder, $options);
     }
 
+    /**
+     * Search wrapper — возвращает результаты, готовые к map'пингу.
+     *
+     * @param Builder $builder
+     * @return mixed
+     */
     public function search(Builder $builder)
     {
         if ($builder instanceof MixedSearch) {
             return $this->map($builder, $this->performSearch($builder), null);
         }
+
         return $this->performSearch($builder);
     }
 
+    /**
+     * Пагинация — устанавливает from/size и выполняет поиск.
+     *
+     * @param Builder $builder
+     * @param int $perPage
+     * @param int $page
+     * @return mixed
+     */
     public function paginate(Builder $builder, $perPage, $page)
     {
-        $builder
-            ->from(($page - 1) * $perPage)
-            ->take($perPage);
+        $builder->from(($page - 1) * $perPage)->take($perPage);
 
         if ($builder instanceof MixedSearch) {
             return $this->map($builder, $this->performSearch($builder), null);
         }
+
         return $this->performSearch($builder);
     }
 
+    /**
+     * Explain запрос.
+     *
+     * @param Builder $builder
+     * @return array
+     */
     public function explain(Builder $builder)
     {
         return $this->performSearch($builder, ['explain' => true]);
     }
 
+    /**
+     * Profile запрос.
+     *
+     * @param Builder $builder
+     * @return array
+     */
     public function profile(Builder $builder)
     {
         return $this->performSearch($builder, ['profile' => true]);
     }
 
-    public function aggregations(Builder $builder, $aggregations)
-    {
-        return $this->performSearch($builder, ['aggregations' => $aggregations]);
-    }
-
+    /**
+     * Выполняет count для набора payload'ов.
+     *
+     * @param Builder $builder
+     * @return int
+     */
     public function count(Builder $builder)
     {
         $count = 0;
 
-        $this
-            ->buildSearchQueryPayloadCollection($builder, ['highlight' => false])
+        $this->buildSearchQueryPayloadCollection($builder, ['highlight' => false])
             ->each(function ($payload) use (&$count) {
                 $result = ElasticClient::count($payload);
                 $count += $result['count'] ?? 0;
@@ -267,74 +326,71 @@ class ElasticEngine extends Engine
         return $count;
     }
 
+    /**
+     * Поиск по произвольному телу для модели.
+     *
+     * @param Model $model
+     * @param array $query
+     * @return array
+     */
     public function searchRaw(Model $model, $query)
     {
-        $payload = (new TypePayload($model))
-            ->setIfNotEmpty('body', $query)
-            ->get();
+        $payload = (new TypePayload($model))->setIfNotEmpty('body', $query)->get();
 
         return ElasticClient::search($payload);
     }
 
+    /**
+     * Возвращает коллекцию id из результатов.
+     *
+     * @param array $results
+     * @return \Illuminate\Support\Collection
+     */
     public function mapIds($results)
     {
-        return collect($results['hits']['hits'])->map(function ($result) {
-            $result['_id'] = $this->getModelIDFromHit($result);
-            return $result;
-        })->pluck('_id');
+        return collect($results['hits']['hits'])
+            ->map(function ($result) {
+                $result['_id'] = $this->getModelIDFromHit($result);
+                return $result;
+            })
+            ->pluck('_id');
     }
 
+    /**
+     * Маппинг результатов в коллекцию моделей.
+     *
+     * @param Builder $builder
+     * @param array $results
+     * @param Model|null $model
+     * @return Collection
+     */
     public function map(Builder $builder, $results, $model)
     {
         if ($this->getTotalCount($results) == 0) {
             return Collection::make();
         }
 
-        if ($builder instanceof MixedSearch) {
-            $models = $this->hydrateMixedModels($builder, $results);
-        } else {
-            $models = $this->hydrateModels($builder, $model, $results);
-        }
+        $models = $builder instanceof MixedSearch
+            ? $this->hydrateMixedModels($builder, $results)
+            : $this->hydrateModels($builder, $model, $results);
 
         return Collection::make($results['hits']['hits'])
             ->map(function ($hit) use ($models, $builder) {
-                $id = $builder instanceof MixedSearch
-                    ? $hit['_id']
-                    : $this->getModelIDFromHit($hit);
+                $id = $builder instanceof MixedSearch ? $hit['_id'] : $this->getModelIDFromHit($hit);
 
                 if (isset($models[$id])) {
                     $model = $models[$id];
-                    $model->_score = $hit['_score'];
+                    $model->_score = $hit['_score'] ?? null;
 
                     if (isset($hit['highlight'])) {
                         $model->highlight = new Highlight($hit['highlight']);
                     }
+
                     return $model;
                 }
             })
             ->filter()
             ->values();
-    }
-
-    public function getTotalCount($results)
-    {
-        return $results['hits']['total']['value'] ?? 0;
-    }
-
-    public function flush($model)
-    {
-        $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
-        $query->orderBy($model->getScoutKeyName())->unsearchable();
-    }
-
-    protected function getModelIDFromHit($hit)
-    {
-        return last(explode('_', $hit['_id']));
-    }
-
-    protected function getTypeNameFromId($id)
-    {
-        return \Str::beforeLast($id, '_');
     }
 
     public function lazyMap(Builder $builder, $results, $model)
@@ -369,19 +425,93 @@ class ElasticEngine extends Engine
             ->values();
     }
 
-    public function createIndex($name, array $options = [])
+    /**
+     * Общее число хитов в результатах.
+     *
+     * @param array $results
+     * @return int
+     */
+    public function getTotalCount($results)
     {
-        // TODO: Implement createIndex() method.
+        return $results['hits']['total']['value'] ?? 0;
     }
 
+    /**
+     * Удаление индекса.
+     *
+     * @param string $name
+     * @return void
+     */
     public function deleteIndex($name)
     {
         $this->indexer->delete($name);
     }
 
+    /**
+     * Создание индекса — пока заглушка (необходимо реализовать по требованию).
+     *
+     * @param string $name
+     * @param array $options
+     * @return void
+     */
+    public function createIndex($name, array $options = [])
+    {
+        // TODO: Implement createIndex() method.
+    }
+
+    /**
+     * Flush — сброс из индекса (unsearchable).
+     *
+     * @param Model $model
+     * @return void
+     */
+    public function flush($model)
+    {
+        $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
+        $query->orderBy($model->getScoutKeyName())->unsearchable();
+    }
+
+    /**
+     * Получить id модели из _id хита (формат: {type}_{id}).
+     *
+     * @param array $hit
+     * @return string|null
+     */
+    protected function getModelIDFromHit($hit)
+    {
+        if (empty($hit['_id'])) {
+            return null;
+        }
+        $parts = explode('_', (string) $hit['_id']);
+        return (string) end($parts);
+    }
+
+    /**
+     * Получить имя типа из id вида {type}_{id}.
+     *
+     * @param string $id
+     * @return string
+     */
+    protected function getTypeNameFromId($id)
+    {
+        return Str::beforeLast($id, '_');
+    }
+
+    /**
+     * Гидратация моделей при обычном (не-mixed) поиске.
+     *
+     * Поддерживаются варианты:
+     * - databaseHydrate = false или toBase() — создаём модели из _source;
+     * - иначе — загружаем из БД одним запросом по scoutKeyName.
+     *
+     * @param Builder $builder
+     * @param Model|null $model
+     * @param array $results
+     * @return Collection
+     */
     public function hydrateModels(Builder $builder, $model, $results)
     {
-        // Проверяем, что модель не null (может быть при использовании MixedSearch расширений)
+        // если model не задан (возможен при расширениях) — берём из builder
         if ($model === null) {
             $model = $builder->model;
             if (!$model) {
@@ -389,57 +519,65 @@ class ElasticEngine extends Engine
             }
         }
 
-        if ($model->databaseHydrate === false || $builder->isToBase()) {
+        // when using source-only hydration
+        if ((property_exists($model, 'databaseHydrate') && $model->databaseHydrate === false) || $builder->isToBase()) {
             $hits = collect($results['hits']['hits']);
             $className = get_class($model);
             $models = new Collection();
-            $indexAttributesPrefix = $model->indexAttributesPrefix;
+            $indexAttributesPrefix = $model->indexAttributesPrefix ?? null;
 
             $hits->each(function ($item) use ($className, $indexAttributesPrefix, $models) {
-                $attributes = Arr::get($item['_source'], $indexAttributesPrefix);
+                $attributes = Arr::get($item['_source'], $indexAttributesPrefix, $item['_source'] ?? []);
                 $item['_id'] = $this->getModelIDFromHit($item);
                 $models->put($item['_id'], new $className($attributes));
             });
-        } else {
-            $scoutKeyName = $model->getScoutKeyName();
-            $columns = Arr::get($results, '_payload.body._source', ['*']);
-            if ($columns !== true && !in_array($scoutKeyName, $columns)) {
-                $columns[] = $scoutKeyName;
-            }
 
-            $ids = $this->mapIds($results)->all();
-            $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
-
-            $models = $query
-                ->whereIn($scoutKeyName, $ids)
-                ->get($columns)
-                ->keyBy($scoutKeyName);
+            return $models;
         }
+
+        // database hydrate: получаем колонки и загружаем из БД одним запросом
+        $scoutKeyName = $model->getScoutKeyName();
+        $columns = Arr::get($results, '_payload.body._source', ['*']);
+
+        if ($columns !== true && ! in_array($scoutKeyName, (array) $columns, true)) {
+            $columns[] = $scoutKeyName;
+        }
+
+        $ids = $this->mapIds($results)->all();
+        $query = $model::usesSoftDelete() ? $model->withTrashed() : $model->newQuery();
+
+        $models = $query->whereIn($scoutKeyName, $ids)->get($columns)->keyBy($scoutKeyName);
 
         return $models;
     }
 
+    /**
+     * Гидратация при MixedSearch — поддерживает:
+     * - source-based (toBase/databaseHydrate=false);
+     * - database-based (загрузка по типу модели, один запрос на тип).
+     *
+     * @param MixedSearch $builder
+     * @param array $results
+     * @return Collection
+     */
     protected function hydrateMixedModels(Builder $builder, $results)
     {
         $hits = collect($results['hits']['hits']);
         $models = new Collection();
 
-        // Кэшируем проверку логирования
         $logEnabled = config('scout_elastic.log_enabled', false);
         $logChannel = $logEnabled ? config('scout_elastic.log_channels')[0] : null;
 
-        // Группируем хиты по типу модели
+        // Группируем по типу: либо из _id (type_id), либо по _index
         $hitsByType = $hits->groupBy(function ($item) {
             return $this->getTypeNameFromId($item['_id']) ?? $item['_index'];
         });
 
-        // Обрабатываем каждый тип модели отдельно
         foreach ($hitsByType as $type => $typeHits) {
             $modelClass = config("scout_elastic.type_mapping.{$type}");
-            if ($modelClass === null || !class_exists($modelClass)) {
+            if ($modelClass === null || ! class_exists($modelClass)) {
                 if ($logEnabled) {
-                    \Illuminate\Support\Facades\Log::channel($logChannel)
-                        ->warning("Model class not found for type: {$type}");
+                    Log::channel($logChannel)->warning("Model class not found for type: {$type}");
                 }
                 continue;
             }
@@ -447,161 +585,140 @@ class ElasticEngine extends Engine
             /** @var Model $instance */
             $instance = new $modelClass();
             $scoutKeyName = $instance->getScoutKeyName();
-            $indexAttributesPrefix = $instance->indexAttributesPrefix;
+            $indexAttributesPrefix = $instance->indexAttributesPrefix ?? null;
 
-            // Получаем выбранные поля для этого индекса из builder->select
             $selectedFields = $builder instanceof MixedSearch && isset($builder->select[$type])
                 ? $builder->select[$type]
                 : ['*' => null];
 
-            // Если select пуст или ['*'], включаем все поля
             $isSelectAll = empty($selectedFields) || (is_array($selectedFields) && array_keys($selectedFields) === ['*']);
 
-            // Проверяем, включен ли toBase или databaseHydrate = false
             $useSource = ($builder instanceof MixedSearch && $builder->isToBase()) ||
-                (property_exists($instance, 'databaseHydrate') && !$instance->databaseHydrate);
+                (property_exists($instance, 'databaseHydrate') && $instance->databaseHydrate === false);
 
             if ($useSource) {
-                // Используем _source напрямую
+                // строим модели из _source
                 $typeHits->each(function ($item) use ($models, $modelClass, $selectedFields, $isSelectAll, $scoutKeyName, $indexAttributesPrefix) {
                     $source = $item['_source'] ?? [];
                     $attributes = Arr::get($source, $indexAttributesPrefix, $source);
-                    $mappedAttributes = [];
+                    $mapped = [];
 
                     if ($isSelectAll) {
-                        // Если select пуст или ['*'], возвращаем все поля из _source
-                        $mappedAttributes = $attributes;
+                        $mapped = $attributes;
                     } elseif ($selectedFields) {
-                        // Применяем только выбранные поля с алиасами
                         foreach ($selectedFields as $field => $alias) {
-                            $targetAlias = $alias ?: $field;
-                            $targetField = $field ?: $alias;
-
+                            $targetAlias = $alias ?: (is_numeric($field) ? $alias : $field);
+                            $targetField = is_numeric($field) ? $alias : $field;
                             if (isset($attributes[$targetField])) {
-                                $mappedAttributes[$targetAlias] = $attributes[$targetField];
+                                $mapped[$targetAlias] = $attributes[$targetField];
                             }
                         }
                     }
 
-                    // Убедимся, что scoutKeyName включён
-                    if (!isset($mappedAttributes[$scoutKeyName]) && isset($source[$scoutKeyName])) {
-                        $mappedAttributes[$scoutKeyName] = $source[$scoutKeyName];
+                    if (! isset($mapped[$scoutKeyName]) && isset($source[$scoutKeyName])) {
+                        $mapped[$scoutKeyName] = $source[$scoutKeyName];
                     }
 
-                    $models->put($item['_id'], new $modelClass($mappedAttributes));
+                    $models->put($item['_id'], new $modelClass($mapped));
                 });
-            } else {
-                // Разделяем поля на те, что есть в модели (для databaseHydrate = true)
-                $modelColumns = [];
-                $tableColumns = $instance->getConnection()->getSchemaBuilder()->getColumnListing($instance->getTable());
 
-                if ($isSelectAll) {
-                    $modelColumns = ['*'];
-                } elseif ($selectedFields) {
-                    foreach ($selectedFields as $field => $alias) {
-                        $targetField = is_numeric($field) ? $alias : $field;
-                        $targetAlias = is_numeric($field) ? $targetField : $alias;
-                        if (in_array($targetField, $tableColumns)) {
-                            $modelColumns[$targetField] = $targetAlias;
-                        }
-                    }
-                }
+                continue;
+            }
 
-                // Добавляем scoutKeyName, если его нет
-                if (!in_array($scoutKeyName, array_keys($modelColumns)) && $modelColumns !== ['*']) {
-                    $modelColumns[$scoutKeyName] = $scoutKeyName;
-                }
+            // databaseHydrate = true: собираем scoutKeyValues и делаем один запрос
+            $scoutKeyValues = $typeHits->pluck('_source.' . $scoutKeyName)->filter()->values()->all();
 
-                // Собираем все значения scoutKeyName
-                $scoutKeyValues = $typeHits->pluck('_source.' . $scoutKeyName)->filter()->values()->all();
-
-                if (empty($scoutKeyValues)) {
-                    if ($logEnabled) {
-                        \Illuminate\Support\Facades\Log::channel($logChannel)
-                            ->warning("No valid scoutKey values for model", [
-                                'model' => $modelClass,
-                                'scoutKeyName' => $scoutKeyName,
-                            ]);
-                    }
-                    continue;
-                }
-
-                // Для databaseHydrate = true загружаем все записи одним запросом
-                $queryColumns = $modelColumns === ['*'] ? ['*'] : array_keys($modelColumns);
-                $query = $instance->newQuery();
-                if ($modelClass::usesSoftDelete()) {
-                    $query = $query->withTrashed();
-                }
-
-                // Выполняем один запрос с WHERE IN
-                $foundModels = $query->select($queryColumns)
-                    ->whereIn($scoutKeyName, $scoutKeyValues)
-                    ->get()
-                    ->keyBy($scoutKeyName);
-
-                // Отладка: логируем запрос и найденные модели
+            if (empty($scoutKeyValues)) {
                 if ($logEnabled) {
-                    \Illuminate\Support\Facades\Log::channel($logChannel)
-                        ->debug('Hydrating models', [
+                    Log::channel($logChannel)->warning("No valid scoutKey values for model", [
+                        'model' => $modelClass,
+                        'scoutKeyName' => $scoutKeyName,
+                    ]);
+                }
+                continue;
+            }
+
+            // Определяем колонки для запроса
+            $isSelectStar = $isSelectAll;
+            $modelColumns = $isSelectStar ? ['*'] : [];
+
+            if (! $isSelectStar && $selectedFields) {
+                // selectedFields может быть в формате [field => alias] или [0 => field]
+                $tableColumns = $instance->getConnection()->getSchemaBuilder()->getColumnListing($instance->getTable());
+                foreach ($selectedFields as $field => $alias) {
+                    $targetField = is_numeric($field) ? $alias : $field;
+                    if (in_array($targetField, $tableColumns, true)) {
+                        $modelColumns[$targetField] = is_numeric($field) ? $targetField : $alias;
+                    }
+                }
+            }
+
+            // добавляем scoutKeyName если нужно
+            if (! $isSelectStar && ! in_array($scoutKeyName, array_keys((array) $modelColumns), true)) {
+                $modelColumns[$scoutKeyName] = $scoutKeyName;
+            }
+
+            $queryColumns = $modelColumns === ['*'] ? ['*'] : array_keys($modelColumns);
+            $query = $instance->newQuery();
+            if ($modelClass::usesSoftDelete()) {
+                $query = $query->withTrashed();
+            }
+
+            $foundModels = $query->select($queryColumns)
+                ->whereIn($scoutKeyName, $scoutKeyValues)
+                ->get()
+                ->keyBy($scoutKeyName);
+
+            if ($logEnabled) {
+                Log::channel($logChannel)->debug('Hydrating models', [
+                    'model' => $modelClass,
+                    'scoutKeyName' => $scoutKeyName,
+                    'scoutKeyValues' => $scoutKeyValues,
+                    'queryColumns' => $queryColumns,
+                    'foundModels' => $foundModels->pluck($scoutKeyName)->all(),
+                ]);
+            }
+
+            // Для каждого хита либо используем найденную модель, либо создаём "пустую" модель и логируем
+            $typeHits->each(function ($item) use ($models, $modelClass, $foundModels, $scoutKeyName, $selectedFields, $isSelectAll, $logEnabled) {
+                $source = $item['_source'] ?? [];
+                $scoutKeyValue = $source[$scoutKeyName] ?? null;
+
+                $model = $scoutKeyValue && $foundModels->has($scoutKeyValue)
+                    ? $foundModels[$scoutKeyValue]
+                    : new $modelClass();
+
+                if (! $model->exists && $logEnabled) {
+                    Log::channel(config('scout_elastic.log_channels')[0] ?? null)
+                        ->warning("Model not found in database", [
                             'model' => $modelClass,
                             'scoutKeyName' => $scoutKeyName,
-                            'scoutKeyValues' => $scoutKeyValues,
-                            'queryColumns' => $queryColumns,
-                            'foundModels' => $foundModels->pluck($scoutKeyName)->all(),
+                            'scoutKeyValue' => $scoutKeyValue,
                         ]);
                 }
 
-                // Обрабатываем каждый хит
-                $typeHits->each(function ($item) use ($models, $modelClass, $foundModels, $scoutKeyName, $selectedFields, $isSelectAll, $logEnabled, $logChannel) {
-                    $source = $item['_source'] ?? [];
-                    $scoutKeyValue = $source[$scoutKeyName] ?? null;
+                $attributes = $model->getAttributes();
 
-                    $model = $scoutKeyValue && $foundModels->has($scoutKeyValue)
-                        ? $foundModels[$scoutKeyValue]
-                        : new $modelClass();
-
-                    if (!$model->exists && $logEnabled) {
-                        \Illuminate\Support\Facades\Log::channel($logChannel)
-                            ->warning("Model not found in database", [
-                                'model' => $modelClass,
-                                'scoutKeyName' => $scoutKeyName,
-                                'scoutKeyValue' => $scoutKeyValue,
-                            ]);
-                    }
-
-                    $attributes = $model->getAttributes();
-
-                    // Отладка: логируем атрибуты
-                    if ($logEnabled) {
-                        \Illuminate\Support\Facades\Log::channel($logChannel)
-                            ->debug('Model attributes', [
-                                'model' => $modelClass,
-                                'attributes' => $attributes,
-                            ]);
-                    }
-
-                    // Применяем алиасы к атрибутам модели
-                    if ($selectedFields && !$isSelectAll) {
-                        $mappedAttributes = [];
-                        foreach ($attributes as $key => $value) {
-                            $alias = null;
-                            foreach ($selectedFields as $field => $fieldAlias) {
-                                $targetField = is_numeric($field) ? $fieldAlias : $field;
-                                if ($targetField === $key) {
-                                    $alias = is_numeric($field) ? $targetField : $fieldAlias;
-                                    break;
-                                }
+                if ($selectedFields && !$isSelectAll) {
+                    $mappedAttributes = [];
+                    foreach ($attributes as $key => $value) {
+                        $alias = null;
+                        foreach ($selectedFields as $field => $fieldAlias) {
+                            $targetField = is_numeric($field) ? $fieldAlias : $field;
+                            if ($targetField === $key) {
+                                $alias = is_numeric($field) ? $targetField : $fieldAlias;
+                                break;
                             }
-                            $mappedAttributes[$alias ?? $key] = $value;
                         }
-                        $model->setRawAttributes($mappedAttributes);
-                    } else {
-                        $model->setRawAttributes($attributes);
+                        $mappedAttributes[$alias ?? $key] = $value;
                     }
+                    $model->setRawAttributes($mappedAttributes);
+                } else {
+                    $model->setRawAttributes($attributes);
+                }
 
-                    $models->put($item['_id'], $model);
-                });
-            }
+                $models->put($item['_id'], $model);
+            });
         }
 
         return $models;

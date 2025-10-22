@@ -14,7 +14,7 @@ use Novius\ScoutElastic\SearchRule;
 
 /**
  * Оптимизированный класс для многоиндексного поиска в Elasticsearch
- * 
+ *
  * Улучшения производительности:
  * - Кэширование экземпляров моделей и метаданных
  * - Оптимизированные операции с массивами
@@ -25,62 +25,62 @@ use Novius\ScoutElastic\SearchRule;
 class MixedSearch extends Builder
 {
     use MixedSearchExtensions;
-    
+
     /** @var array Список индексов для поиска */
     public $indices = [];
-    
+
     /** @var array Маппинг индексов к классам моделей */
     protected $models = [];
-    
+
     /** @var array Поля для выборки по индексам */
     public $select = [];
-    
+
     /** @var int|null Смещение для пагинации */
     public $offset;
-    
+
     /** @var int|null Лимит результатов */
     public $limit;
-    
+
     /** @var array Условия фильтрации (упрощенная структура) */
     public $wheres = [];
-    
+
     /** @var array Параметры сортировки */
     public $orders = [];
-    
+
     /** @var array Конфигурация агрегаций */
     protected $aggregations = [];
-    
+
     /** @var float|null Минимальный score для результатов */
     protected $minScore;
-    
+
     /** @var int|null Минимальное количество совпадений для should запросов */
     protected $minimumShouldMatch;
-    
+
     /** @var array Настройки коллапса результатов */
     protected $collapse = [];
-    
+
     /** @var array|null Значения для search_after пагинации */
     protected $searchAfter;
-    
+
     /** @var mixed Отношения для загрузки */
     protected $with;
-    
+
     /** @var bool Возвращать базовую коллекцию */
     protected $toBase = false;
-    
+
     /** @var array Дополнительные опции запроса */
     public $options = [];
 
     // Кэши для оптимизации производительности
     /** @var array Кэш экземпляров моделей */
     private static $modelInstancesCache = [];
-    
+
     /** @var array Кэш метаданных моделей */
     private static $modelMetaCache = [];
-    
+
     /** @var array Кэш проверок существования классов */
     private static $classExistsCache = [];
-    
+
     /** @var bool Включено ли логирование */
     private static $loggingEnabled;
 
@@ -88,7 +88,7 @@ class MixedSearch extends Builder
     {
         parent::__construct(null, null);
         $this->initializeDefaults();
-        
+
         // Инициализируем настройку логирования один раз
         if (self::$loggingEnabled === null) {
             self::$loggingEnabled = config('scout_elastic.log_enabled', false);
@@ -113,20 +113,20 @@ class MixedSearch extends Builder
 
     /**
      * Добавляет индекс или модель для поиска
-     * 
+     *
      * @param string|Model $index Класс модели, экземпляр модели или название индекса
      * @return $this
      */
     public function within($index)
     {
         $indexName = $this->resolveIndexName($index);
-        
+
         if (!in_array($indexName, $this->indices)) {
             $this->indices[] = $indexName;
             $this->wheres[$indexName] = ['must' => [], 'must_not' => [], 'should' => []];
             $this->collapse[$indexName] = null;
         }
-        
+
         return $this;
     }
 
@@ -140,13 +140,13 @@ class MixedSearch extends Builder
             $this->models[$indexName] = $index;
             return $indexName;
         }
-        
+
         if ($index instanceof Model) {
             $indexName = $index->searchableAs();
             $this->models[$indexName] = get_class($index);
             return $indexName;
         }
-        
+
         // Обычная строка с названием индекса
         $this->models[$index] = null;
         return $index;
@@ -160,7 +160,7 @@ class MixedSearch extends Builder
         if (!isset(self::$classExistsCache[$class])) {
             self::$classExistsCache[$class] = class_exists($class) && is_subclass_of($class, Model::class);
         }
-        
+
         return self::$classExistsCache[$class];
     }
 
@@ -172,7 +172,7 @@ class MixedSearch extends Builder
         if (!isset(self::$modelInstancesCache[$modelClass])) {
             self::$modelInstancesCache[$modelClass] = new $modelClass();
         }
-        
+
         return self::$modelInstancesCache[$modelClass];
     }
 
@@ -182,27 +182,27 @@ class MixedSearch extends Builder
     private function getModelMeta(string $modelClass, string $property)
     {
         $cacheKey = $modelClass . '.' . $property;
-        
+
         if (!isset(self::$modelMetaCache[$cacheKey])) {
             $instance = $this->getModelInstance($modelClass);
-            
+
             switch ($property) {
                 case 'scoutKeyName':
                     self::$modelMetaCache[$cacheKey] = $instance->getScoutKeyName();
                     break;
                 case 'searchSettings':
-                    self::$modelMetaCache[$cacheKey] = property_exists($instance, 'searchSettings') 
+                    self::$modelMetaCache[$cacheKey] = property_exists($instance, 'searchSettings')
                         ? ($instance->searchSettings ?? []) : [];
                     break;
                 case 'searchRules':
-                    self::$modelMetaCache[$cacheKey] = property_exists($instance, 'searchRules') 
+                    self::$modelMetaCache[$cacheKey] = property_exists($instance, 'searchRules')
                         ? ($instance->searchRules ?? []) : [];
                     break;
                 default:
                     self::$modelMetaCache[$cacheKey] = null;
             }
         }
-        
+
         return self::$modelMetaCache[$cacheKey];
     }
 
@@ -214,7 +214,7 @@ class MixedSearch extends Builder
 
     /**
      * Настраивает поля для выборки
-     * 
+     *
      * @param array|string $fields Поля для выборки
      * @return $this
      */
@@ -235,7 +235,7 @@ class MixedSearch extends Builder
             // Ассоциативный массив: индекс => поля
             foreach ($fields as $index => $indexFields) {
                 $this->validateIndex($index);
-                
+
                 $this->select[$index] = [];
                 foreach ($indexFields as $field => $alias) {
                     if (is_numeric($field)) {
@@ -288,7 +288,7 @@ class MixedSearch extends Builder
 
     /**
      * Добавляет сортировку к запросу
-     * 
+     *
      * @param string $field Поле для сортировки
      * @param string $direction Направление сортировки (asc/desc)
      * @return $this
@@ -303,7 +303,7 @@ class MixedSearch extends Builder
 
     /**
      * Оптимизированная пагинация - один запрос вместо двух
-     * 
+     *
      * @param int|null $perPage Количество элементов на странице
      * @param string $pageName Имя параметра страницы
      * @param int|null $page Номер страницы
@@ -313,7 +313,7 @@ class MixedSearch extends Builder
     {
         $page = $page ?: \Illuminate\Pagination\Paginator::resolveCurrentPage($pageName);
         $perPage = $perPage ?: 15;
-        
+
         $this->from(($page - 1) * $perPage)->take($perPage);
 
         // Одновременно получаем результаты и общее количество
@@ -348,7 +348,7 @@ class MixedSearch extends Builder
 
     /**
      * Добавляет условие WHERE
-     * 
+     *
      * @param string|\Closure $field Поле или замыкание
      * @param mixed $operator Оператор сравнения
      * @param mixed $value Значение
@@ -363,9 +363,9 @@ class MixedSearch extends Builder
         }
 
         [$value, $operator] = $this->prepareValueAndOperator($value, $operator, func_num_args() === 2);
-        
+
         $condition = $this->buildCondition($field, $operator, $value);
-        
+
         if ($operator === '!=' || $operator === '<>') {
             $this->addNegativeCondition($condition, $boolean, $index);
         } else {
@@ -413,13 +413,13 @@ class MixedSearch extends Builder
         if ($boolean === 'should') {
             $condition = ['bool' => ['must_not' => [$condition]]];
         }
-        
+
         $targetIndex = $index ?? '_all';
-        
+
         if ($index && !in_array($index, $this->indices)) {
             throw new \InvalidArgumentException("Index {$index} not specified in within()");
         }
-        
+
         if ($boolean === 'must') {
             $this->wheres[$targetIndex]['must_not'][] = $condition;
         } else {
@@ -436,14 +436,14 @@ class MixedSearch extends Builder
     {
         $filter = new self();
         call_user_func($callback, $filter);
-        
+
         $payload = $filter->buildPayload();
-        
+
         if (self::$loggingEnabled) {
             \Log::channel(config('scout_elastic.log_channels')[0])
                 ->debug('FilterBuilder nested payload', ['payload' => $payload]);
         }
-        
+
         $this->wheres['_all'][$boolean][] = $payload['query']['bool'] ?? [];
         return $this;
     }
@@ -614,7 +614,7 @@ class MixedSearch extends Builder
 
     /**
      * Настраивает коллапс результатов по полю
-     * 
+     *
      * @param string $field Поле для коллапса
      * @param string|null $index Конкретный индекс
      * @return $this
@@ -622,11 +622,11 @@ class MixedSearch extends Builder
     public function collapse(string $field, $index = null)
     {
         $targetIndex = $index ?? '_all';
-        
+
         if ($index && !in_array($index, $this->indices)) {
             throw new \InvalidArgumentException("Index {$index} not specified in within()");
         }
-        
+
         $this->collapse[$targetIndex] = $field;
         return $this;
     }
@@ -651,7 +651,7 @@ class MixedSearch extends Builder
 
     /**
      * Включает удаленные записи в результаты
-     * 
+     *
      * @return $this
      */
     public function withTrashed()
@@ -666,7 +666,7 @@ class MixedSearch extends Builder
 
     /**
      * Возвращает только удаленные записи
-     * 
+     *
      * @return $this
      */
     public function onlyTrashed()
@@ -683,7 +683,7 @@ class MixedSearch extends Builder
 
     /**
      * Выполняет поиск и возвращает результаты
-     * 
+     *
      * @return Collection
      * @throws \InvalidArgumentException
      */
@@ -718,7 +718,7 @@ class MixedSearch extends Builder
 
     /**
      * Оптимизированная обработка агрегаций с минимизацией сложных фильтров
-     * 
+     *
      * @param array $aggregations Конфигурация агрегаций
      * @param array $fieldMap Маппинг полей по индексам
      * @return $this
@@ -763,7 +763,7 @@ class MixedSearch extends Builder
 
             // Клонируем базовую агрегацию и заменяем поле
             $subAgg = $this->replaceAggregationField($agg, $field);
-            
+
             // Минимальные фильтры только для существующих записей
             $modifiedAgg['filter']['bool']['should'][] = [
                 'bool' => [
@@ -773,7 +773,7 @@ class MixedSearch extends Builder
                     ],
                 ],
             ];
-            
+
             $modifiedAgg['aggs'][$index . '_' . $name] = $subAgg;
         }
 
@@ -786,14 +786,14 @@ class MixedSearch extends Builder
     private function replaceAggregationField(array $agg, string $field): array
     {
         static $aggTypes = ['terms', 'avg', 'sum', 'min', 'max', 'value_count'];
-        
+
         foreach ($aggTypes as $aggType) {
             if (isset($agg[$aggType]['field'])) {
                 $agg[$aggType]['field'] = $field;
                 break;
             }
         }
-        
+
         return $agg;
     }
 
@@ -803,7 +803,7 @@ class MixedSearch extends Builder
     private function warnAboutFieldTypeMismatch(string $name, array $agg): void
     {
         static $numericAggTypes = ['avg', 'sum', 'min', 'max'];
-        
+
         foreach ($numericAggTypes as $aggType) {
             if (isset($agg[$aggType]) && self::$loggingEnabled) {
                 \Log::channel(config('scout_elastic.log_channels')[0])
@@ -821,7 +821,7 @@ class MixedSearch extends Builder
 
     /**
      * Оптимизированная обработка результатов агрегаций
-     * 
+     *
      * @return array|null
      */
     public function aggregations()
@@ -857,9 +857,9 @@ class MixedSearch extends Builder
         // Ищем под-агрегации для каждого индекса
         foreach ($this->indices as $index) {
             $subAggName = $index . '_' . $name;
-            
+
             if (!isset($aggData[$subAggName])) continue;
-            
+
             $hasSubAggregations = true;
             $subAggData = $aggData[$subAggName];
 
@@ -870,7 +870,7 @@ class MixedSearch extends Builder
                     $buckets[$key] = ($buckets[$key] ?? 0) + $bucket['doc_count'];
                 }
             }
-            
+
             // Обработка числовых агрегаций
             elseif (isset($subAggData['value'])) {
                 $aggregatedValue += $subAggData['value'];
@@ -908,7 +908,7 @@ class MixedSearch extends Builder
 
     /**
      * Оптимизированная сборка payload'ов запросов с кэшированием
-     * 
+     *
      * @return Collection
      */
     public function buildSearchQueryPayloadCollection(): Collection
@@ -917,7 +917,7 @@ class MixedSearch extends Builder
 
         // Группируем модели для уменьшения повторных вычислений
         $validModels = $this->getValidModelsWithRules();
-        
+
         if (empty($validModels)) {
             return $this->buildDefaultPayload();
         }
@@ -976,16 +976,16 @@ class MixedSearch extends Builder
                 /** @var SearchRule $ruleEntity */
                 $ruleEntity = new $rule($this);
                 if (!$ruleEntity->isApplicable()) continue;
-                
+
                 $queryPayload = $ruleEntity->buildQueryPayload();
                 if (empty($queryPayload)) continue;
             }
 
             $payload = $this->buildBasePayload($index, $modelData);
-            
+
             // Добавляем query payload
             $payload['body']['query']['bool'] = $queryPayload;
-            
+
             // Добавляем highlight если нужно
             if (($this->options['highlight'] ?? true) && !is_callable($rule)) {
                 $highlightPayload = $ruleEntity->buildHighlightPayload();
@@ -1029,7 +1029,7 @@ class MixedSearch extends Builder
     {
         $source = [];
         $scoutKeyName = $this->getModelMeta(get_class($modelInstance), 'scoutKeyName');
-        
+
         // Добавляем обязательные поля
         $fields = $this->select[$index];
         if (!isset($fields[$scoutKeyName])) {
@@ -1051,19 +1051,19 @@ class MixedSearch extends Builder
         if (isset($this->minScore)) {
             $payload['body']['min_score'] = $this->minScore;
         }
-        
+
         if (isset($this->offset)) {
             $payload['body']['from'] = $this->offset;
         }
-        
+
         if (isset($this->limit)) {
             $payload['body']['size'] = $this->limit;
         }
-        
+
         if (!empty($this->orders)) {
             $payload['body']['sort'] = $this->orders;
         }
-        
+
         if (!empty($this->aggregations)) {
             $payload['body']['aggs'] = $this->aggregations;
         }
@@ -1080,17 +1080,17 @@ class MixedSearch extends Builder
         if (isset($this->options['explain'])) {
             $payload['body']['explain'] = $this->options['explain'];
         }
-        
+
         if (isset($this->options['profile'])) {
             $payload['body']['profile'] = $this->options['profile'];
         }
 
         // Применяем фильтры
         $this->applyWhereConditions($payload, $modelData['instance']->searchableAs());
-        
+
         // Применяем коллапс
         $this->applyCollapseSettings($payload, $modelData['instance']->searchableAs());
-        
+
         // Применяем настройки модели
         $this->applyModelSettings($payload, $modelData['settings']);
     }
@@ -1118,7 +1118,7 @@ class MixedSearch extends Builder
         $indexWheres = $this->wheres[$index] ?? ['must' => [], 'must_not' => [], 'should' => []];
         if (!empty($indexWheres['must']) || !empty($indexWheres['must_not']) || !empty($indexWheres['should'])) {
             $indexBool = ['bool' => ['filter' => [['term' => ['_index' => $index]]]]];
-            
+
             if (!empty($indexWheres['must'])) {
                 $indexBool['bool']['filter'] = array_merge($indexBool['bool']['filter'], $indexWheres['must']);
             }
@@ -1129,7 +1129,7 @@ class MixedSearch extends Builder
                 $indexBool['bool']['should'] = $indexWheres['should'];
                 $indexBool['bool']['minimum_should_match'] = 1;
             }
-            
+
             $boolQuery['filter'] = array_merge($boolQuery['filter'] ?? [], [$indexBool]);
         }
 
@@ -1149,7 +1149,7 @@ class MixedSearch extends Builder
     private function applyCollapseSettings(array &$payload, string $index): void
     {
         $collapseFields = array_filter($this->collapse);
-        
+
         if (empty($collapseFields)) return;
 
         // Простой случай - один коллапс для всех
@@ -1196,7 +1196,7 @@ class MixedSearch extends Builder
         if (!is_array($settings)) {
             return;
         }
-        
+
         foreach ($settings as $setting => $value) {
             if (is_array($value) && isset($payload['body'][$setting]) && is_array($payload['body'][$setting])) {
                 $payload['body'][$setting] = array_merge($payload['body'][$setting], $value);
@@ -1227,24 +1227,28 @@ class MixedSearch extends Builder
         }
 
         // Настройка _source
+        $payload['body']['_source'] = true;
+
         if (!empty($this->select)) {
             $source = [];
+
             foreach ($this->select as $index => $fields) {
                 $modelClass = $this->models[$index] ?? null;
+
                 if ($modelClass && $this->isModelClass($modelClass)) {
                     $scoutKeyName = $this->getModelMeta($modelClass, 'scoutKeyName');
-                    if (!isset($fields[$scoutKeyName])) {
-                        $fields[$scoutKeyName] = null;
-                    }
-                    if (!isset($fields['type'])) {
-                        $fields['type'] = null;
-                    }
+                    $fields[$scoutKeyName] = $fields[$scoutKeyName] ?? null;
+                    $fields['type'] = $fields['type'] ?? null;
                 }
-                $source = array_merge($source, array_keys($fields));
+
+                foreach ($fields as $key => $_) {
+                    $source[$key] = true; // ключи автоматически уникальны
+                }
             }
-            $payload['body']['_source'] = !empty($source) ? array_unique($source) : true;
-        } else {
-            $payload['body']['_source'] = true;
+
+            if (!empty($source)) {
+                $payload['body']['_source'] = array_keys($source);
+            }
         }
 
         // Применяем стандартные настройки
@@ -1263,30 +1267,30 @@ class MixedSearch extends Builder
         if (isset($this->minScore)) {
             $payload['body']['min_score'] = $this->minScore;
         }
-        
+
         if (isset($this->offset)) {
             $payload['body']['from'] = $this->offset;
         }
-        
+
         if (isset($this->limit)) {
             $payload['body']['size'] = $this->limit;
         }
-        
+
         if (!empty($this->orders)) {
             $payload['body']['sort'] = $this->orders;
         }
-        
+
         if (!empty($this->aggregations)) {
             $payload['body']['aggs'] = $this->aggregations;
         }
-        
+
         // Всегда включаем track_scores для получения _score
         $payload['body']['track_scores'] = true;
-        
+
         if (isset($this->options['explain'])) {
             $payload['body']['explain'] = $this->options['explain'];
         }
-        
+
         if (isset($this->options['profile'])) {
             $payload['body']['profile'] = $this->options['profile'];
         }
@@ -1298,7 +1302,7 @@ class MixedSearch extends Builder
     private function applyDefaultWhereConditions(array &$payload): void
     {
         $boolQuery = $payload['body']['query']['bool'];
-        
+
         // Глобальные условия
         $globalWheres = $this->wheres['_all'];
         if (!empty($globalWheres['must'])) {
@@ -1355,7 +1359,7 @@ class MixedSearch extends Builder
     private function applyDefaultCollapse(array &$payload): void
     {
         $collapseFields = array_filter($this->collapse);
-        
+
         if (empty($collapseFields)) return;
 
         if (count($collapseFields) === 1 && isset($collapseFields['_all'])) {
@@ -1402,12 +1406,12 @@ class MixedSearch extends Builder
             if (!$modelClass || !$this->isModelClass($modelClass)) {
                 continue;
             }
-            
+
             $settings = $this->getModelMeta($modelClass, 'searchSettings');
             if (!is_array($settings)) {
                 continue;
             }
-            
+
             foreach ($settings as $setting => $value) {
                 if (is_array($value) && isset($payload['body'][$setting]) && is_array($payload['body'][$setting])) {
                     $payload['body'][$setting] = array_merge($payload['body'][$setting], $value);
@@ -1420,7 +1424,7 @@ class MixedSearch extends Builder
 
     /**
      * Создает payload для обратной совместимости
-     * 
+     *
      * @return array
      */
     public function buildPayload()
