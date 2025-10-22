@@ -144,7 +144,7 @@ php artisan elastic:drop-index "App\MyIndexConfigurator"
 php artisan make:search-rule MySearchRule
 ```
 
-Пример правила поиска:
+В файле app/MySearchRule.php вы найдете определение класса:
 
 ```php
 <?php
@@ -155,30 +155,56 @@ use Novius\ScoutElastic\SearchRule;
 
 class MySearchRule extends SearchRule
 {
+    // This method returns an array, describes how to highlight the results.
+    // If null is returned, no highlighting will be used. 
+    public function buildHighlightPayload()
+    {
+        return [
+            'fields' => [
+                'name' => [
+                    'type' => 'plain'
+                ]
+            ]
+        ];
+    }
+    
+    // This method returns an array, that represents bool query.
     public function buildQueryPayload()
     {
         return [
-            'bool' => [
-                'must' => [
-                    ['match' => ['title' => $this->builder->query]],
-                ],
-            ],
+            'must' => [
+                'match' => [
+                    'name' => $this->builder->query
+                ]
+            ]
         ];
-    }
-
-    public function isApplicable()
-    {
-        return !empty($this->builder->query);
     }
 }
 ```
+
+Подробнее о запросах типа bool можно прочитать [здесь](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-bool-query.html)
+и о подсветке [здесь](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-body.html#request-body-search-highlighting).
+
+Правило поиска по умолчанию возвращает следующую полезную нагрузку:
+
+```php 
+return [ 
+   'must' => [ 
+       'query_string' => [ 
+           'query' => $this->builder->query 
+       ] 
+   ] 
+]; 
+``` 
+
+Это означает, что по умолчанию при вызове метода `search` для модели он пытается найти строку запроса в любом поле.
 
 Чтобы подключить правило поиска к модели, добавьте его в свойство `$searchRules`:
 
 ```php
 class Product extends Model
 {
-    use \Laravel\Scout\Searchable;
+    use Novius\ScoutElastic\Searchable;
 
     protected $searchRules = [
         \App\ProductSearchRule::class,
@@ -190,6 +216,43 @@ class Product extends Model
         return \App\ProductsIndexConfigurator::class;
     }
 }
+```
+
+Вы также можете задать правило поиска в конструкторе запросов:
+
+```php
+// Вы можете задать либо класс SearchRule 
+App\MyModel::search('Brazil')
+    ->rule(App\MySearchRule::class)
+    ->get();
+    
+// или в вызове
+App\MyModel::search('Brazil')
+    ->rule(function($builder) {
+        return [
+            'must' => [
+                'match' => [
+                    'Country' => $builder->query
+                ]
+            ]
+        ];
+    })
+    ->get();
+```
+
+Чтобы получить подсветку, используйте атрибут модели `highlight`:
+
+```php
+// Допустим, мы подсвечиваем поле `name` из `MyModel`.
+$model = App\MyModel::search('Brazil')
+    ->rule(App\MySearchRule::class)
+    ->first();
+
+// Теперь вы можете получить необработанное подсвеченное значение:
+$model->highlight->name;
+
+// или строковое значение: 
+ $model->highlight->nameAsString;
 ```
 
 ## Использование
