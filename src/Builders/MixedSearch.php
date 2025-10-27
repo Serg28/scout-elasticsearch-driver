@@ -191,12 +191,12 @@ class MixedSearch extends Builder
                     self::$modelMetaCache[$cacheKey] = $instance->getScoutKeyName();
                     break;
                 case 'searchSettings':
-                    self::$modelMetaCache[$cacheKey] = property_exists($instance, 'searchSettings')
-                        ? ($instance->searchSettings ?? []) : [];
+                    self::$modelMetaCache[$cacheKey] = method_exists($instance, 'getSearchSettings')
+                        ? ($instance->getSearchSettings() ?? []) : [];
                     break;
                 case 'searchRules':
-                    self::$modelMetaCache[$cacheKey] = property_exists($instance, 'searchRules')
-                        ? ($instance->searchRules ?? []) : [];
+                    self::$modelMetaCache[$cacheKey] = method_exists($instance, 'getSearchRules')
+                        ? ($instance->getSearchRules() ?? []) : [];
                     break;
                 default:
                     self::$modelMetaCache[$cacheKey] = null;
@@ -324,11 +324,11 @@ class MixedSearch extends Builder
         if (self::$loggingEnabled) {
             \Log::channel(config('scout_elastic.log_channels')[0])
                 ->debug('Paginate results', [
-                'perPage' => $perPage,
-                'page' => $page,
-                'total' => $total,
-                'results_count' => $results->count(),
-            ]);
+                    'perPage' => $perPage,
+                    'page' => $page,
+                    'total' => $total,
+                    'results_count' => $results->count(),
+                ]);
         }
 
         $paginator = new LengthAwarePaginator(
@@ -808,12 +808,12 @@ class MixedSearch extends Builder
             if (isset($agg[$aggType]) && self::$loggingEnabled) {
                 \Log::channel(config('scout_elastic.log_channels')[0])
                     ->warning(
-                    "Aggregation '$name' of type '$aggType' may fail if field types differ across indices",
-                    [
-                        'indices' => $this->indices,
-                        'field' => $agg[$aggType]['field'] ?? 'unknown',
-                    ]
-                );
+                        "Aggregation '$name' of type '$aggType' may fail if field types differ across indices",
+                        [
+                            'indices' => $this->indices,
+                            'field' => $agg[$aggType]['field'] ?? 'unknown',
+                        ]
+                    );
                 break;
             }
         }
@@ -942,6 +942,7 @@ class MixedSearch extends Builder
         $validModels = [];
 
         foreach ($this->models as $index => $modelClass) {
+
             if (!$modelClass || !$this->isModelClass($modelClass)) {
                 continue;
             }
