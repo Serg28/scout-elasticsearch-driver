@@ -2,6 +2,7 @@
 
 namespace Novius\ScoutElastic;
 
+use Novius\ScoutElastic\Builders\MixedSearch;
 use Novius\ScoutElastic\Builders\SearchBuilder;
 
 class SearchRule
@@ -16,10 +17,10 @@ class SearchRule
     /**
      * SearchRule constructor.
      *
-     * @param \ScoutElastic\Builders\SearchBuilder $builder
+     * @param \ScoutElastic\Builders\SearchBuilder|MixedSearch $builder
      * @return void
      */
-    public function __construct(SearchBuilder $builder)
+    public function __construct(SearchBuilder|MixedSearch $builder)
     {
         $this->builder = $builder;
     }
