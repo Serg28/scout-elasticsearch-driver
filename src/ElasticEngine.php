@@ -723,4 +723,59 @@ class ElasticEngine extends Engine
 
         return $models;
     }
+
+    /**
+     * Получение информации об индексе Elasticsearch: настройки, маппинги, алиасы.
+     *
+     * @param string $indexName
+     * @return array
+     * @throws \Exception
+     */
+    public function getIndexInfo(string $indexName): array
+    {
+        $logEnabled = config('scout_elastic.log_enabled', false);
+        $logChannel = $logEnabled ? config('scout_elastic.log_channels')[0] : null;
+
+        try {
+            $client = ElasticClient::getFacadeRoot();
+
+            // Получаем индекс или алиас
+            $response = $client->indices()->get(['index' => $indexName]);
+
+            // Если это алиас, берём реальное имя индекса
+            if (!isset($response[$indexName])) {
+                $aliasInfo = $client->indices()->getAlias(['name' => $indexName]);
+                $indexName = array_key_first($aliasInfo);
+                $response = $client->indices()->get(['index' => $indexName]);
+            }
+
+            $indexData = $response[$indexName] ?? [];
+
+            $settings = $indexData['settings']['index'] ?? [];
+            $mappings = $indexData['mappings']['properties'] ?? [];
+            $aliases  = $indexData['aliases'] ?? [];
+
+            if ($logEnabled) {
+                Log::channel($logChannel)->debug('Elasticsearch index info', [
+                    'index' => $indexName,
+                    'settings' => $settings,
+                ]);
+            }
+
+            return [
+                'index_name' => $indexName,
+                'settings'   => $settings, // Включает все поля: number_of_shards, analysis, creation_date и т.д.
+                'mappings'   => $mappings,
+                'aliases'    => $aliases,
+            ];
+        } catch (\Exception $e) {
+            if ($logEnabled) {
+                Log::channel($logChannel)->error('Elasticsearch index info error', [
+                    'index' => $indexName,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+            throw $e;
+        }
+    }
 }

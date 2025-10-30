@@ -188,4 +188,16 @@ trait Searchable
     {
         return $this->getIndexConfigurator()->getType() ?: $this->searchableAs();
     }
+
+    /**
+     * Get information about the index, including creation date and update time.
+     *
+     * @return array
+     * @throws Exception
+     */
+    public function getIndexInfo(): array
+    {
+        $indexName = $this->searchableAs();
+        return $this->searchableUsing()->getIndexInfo($indexName);
+    }
 }
