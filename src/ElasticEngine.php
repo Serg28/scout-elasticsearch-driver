@@ -750,10 +750,14 @@ class ElasticEngine extends Engine
             }
 
             $indexData = $response[$indexName] ?? [];
-
             $settings = $indexData['settings']['index'] ?? [];
             $mappings = $indexData['mappings']['properties'] ?? [];
             $aliases  = $indexData['aliases'] ?? [];
+
+            // Получаем статистику по документам
+            $stats = $client->indices()->stats(['index' => $indexName]);
+            $primaries = $stats['indices'][$indexName]['primaries'] ?? [];
+            $docs = $primaries['docs'] ?? [];
 
             if ($logEnabled) {
                 Log::channel($logChannel)->debug('Elasticsearch index info', [
@@ -763,10 +767,12 @@ class ElasticEngine extends Engine
             }
 
             return [
-                'index_name' => $indexName,
-                'settings'   => $settings, // Включает все поля: number_of_shards, analysis, creation_date и т.д.
-                'mappings'   => $mappings,
-                'aliases'    => $aliases,
+                'index_name'   => $indexName,
+                'settings'     => $settings,
+                'mappings'     => $mappings,
+                'aliases'      => $aliases,
+                'docs_count'   => $docs['count'] ?? 0,
+                'docs_deleted' => $docs['deleted'] ?? 0,
             ];
         } catch (\Exception $e) {
             if ($logEnabled) {
