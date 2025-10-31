@@ -200,4 +200,23 @@ trait Searchable
         $indexName = $this->searchableAs();
         return $this->searchableUsing()->getIndexInfo($indexName);
     }
+
+    /**
+     * Статический метод получения информации об индексе Elasticsearch.
+     *
+     * @param string|null $indexName Если не передан — берём searchableAs() модели
+     * @return array
+     * @throws \Exception
+     */
+    public static function getIndexInfoStatic(?string $indexName = null): array
+    {
+        // Получаем экземпляр модели
+        $model = new static;
+
+        // Если имя индекса не передано, берём из searchableAs()
+        $indexName = $indexName ?? $model->searchableAs();
+
+        // Получаем информацию об индексе через сервис (searchableUsing)
+        return $model->searchableUsing()->getIndexInfo($indexName);
+    }
 }
