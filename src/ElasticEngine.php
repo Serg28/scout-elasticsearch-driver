@@ -183,7 +183,8 @@ class ElasticEngine extends Engine
                     $results['hits']['hits'] = array_merge($results['hits']['hits'], $searchResult['hits']['hits'] ?? []);
 
                     // суммируем total
-                    $results['hits']['total']['value'] += $searchResult['hits']['total']['value'] ?? 0;
+                    //$results['hits']['total']['value'] += $searchResult['hits']['total']['value'] ?? 0;
+                    $results['hits']['total']['value'] +=  $this->getTotalCount($searchResult);
 
                     // объединяем агрегации (рекурсивно)
                     if (isset($searchResult['aggregations'])) {
@@ -433,7 +434,7 @@ class ElasticEngine extends Engine
      */
     public function getTotalCount($results)
     {
-        return $results['hits']['total']['value'] ?? 0;
+        return $results['hits']['total']['value'] ?? $results['_shards']['total'] ?? 0;
     }
 
     /**
