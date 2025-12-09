@@ -199,7 +199,7 @@ return [
 
 Это означает, что по умолчанию при вызове метода `search` для модели он пытается найти строку запроса в любом поле.
 
-Чтобы подключить правило поиска к модели, добавьте его в свойство `$searchRules`:
+Чтобы подключить правило поиска к модели, добавьте его в свойство `$searchRules` и указать класс конфигуратора в свойстве `$indexConfigurator`:
 
 ```php
 class Product extends Model
@@ -210,11 +210,7 @@ class Product extends Model
         \App\ProductSearchRule::class,
     ];
 
-    // Конфигуратор индекса
-    public function getScoutIndexConfigurator()
-    {
-        return \App\ProductsIndexConfigurator::class;
-    }
+    protected $indexConfigurator = ProductsIndexConfigurator::class;
 }
 ```
 
