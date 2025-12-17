@@ -732,9 +732,10 @@ class FilterBuilder extends Builder
 
     public function aggregations()
     {
-        return $this
+        return $this->engine()->search($this)["aggregations"] ?? null;
+        /*return $this
             ->engine()
-            ->profile($this)["aggregations"] ?? null;
+            ->profile($this)["aggregations"] ?? null;*/
     }
 
     /**
