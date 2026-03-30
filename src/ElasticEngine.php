@@ -375,7 +375,7 @@ class ElasticEngine extends Engine
             ? $this->hydrateMixedModels($builder, $results)
             : $this->hydrateModels($builder, $model, $results);
 
-        return Collection::make($results['hits']['hits'])
+        $mappedModels = Collection::make($results['hits']['hits'])
             ->map(function ($hit) use ($models, $builder) {
                 $id = $builder instanceof MixedSearch ? $hit['_id'] : $this->getModelIDFromHit($hit);
 
@@ -392,6 +392,8 @@ class ElasticEngine extends Engine
             })
             ->filter()
             ->values();
+
+        return new Collection($mappedModels->all());
     }
 
     public function lazyMap(Builder $builder, $results, $model)
